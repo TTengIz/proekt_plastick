@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🏭 Учёт смен</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 28px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 600;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        button {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .success {
+            background: #efe;
+            color: #3c3;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .dashboard {
+            text-align: center;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin: 30px 0;
+        }
+
+        .stat-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            margin-top: 10px;
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
+        }
+
+        .toggle-link {
+            text-align: center;
+            margin-top: 20px;
+            color: #667eea;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 25px;
+            }
+
+            h1 {
+                font-size: 24px;
+            }
+
+            .stats {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- ЛОГИН -->
+        <div id="loginForm">
+            <h1>🏭 Учёт смен</h1>
+            <div id="loginError" class="error hidden"></div>
+
+            <div class="form-group">
+                <label>Логин</label>
+                <input type="text" id="loginUsername" placeholder="Введите логин">
+            </div>
+
+            <div class="form-group">
+                <label>Пароль</label>
+                <input type="password" id="loginPassword" placeholder="Введите пароль">
+            </div>
+
+            <button onclick="login()">Войти</button>
+            <div class="toggle-link" onclick="showRegister()">Нет аккаунта? Зарегистрироваться</div>
+        </div>
+
+        <!-- РЕГИСТРАЦИЯ -->
+        <div id="registerForm" class="hidden">
+            <h1>📝 Регистрация</h1>
+            <div id="registerError" class="error hidden"></div>
+            <div id="registerSuccess" class="success hidden"></div>
+
+            <div class="form-group">
+                <label>Логин</label>
+                <input type="text" id="regLogin" placeholder="Придумайте логин">
+            </div>
+
+            <div class="form-group">
+                <label>Пароль</label>
+                <input type="password" id="regPassword" placeholder="Придумайте пароль">
+            </div>
+
+            <div class="form-group">
+                <label>Роль</label>
+                <select id="regRole">
+                    <option value="user">Сотрудник</option>
+                    <option value="admin">Администратор</option>
+                </select>
+            </div>
+
+            <div class="form-group" id="adminSecretGroup" class="hidden">
+                <label>Секрет админа</label>
+                <input type="text" id="regAdminSecret" placeholder="SUPER_SECRET_ADMIN_KEY_2026">
+            </div>
+
+            <button onclick="register()">Зарегистрироваться</button>
+            <div class="toggle-link" onclick="showLogin()">Уже есть аккаунт? Войти</div>
+        </div>
+
+        <!-- ЛИЧНЫЙ КАБИНЕТ -->
+        <div id="dashboard" class="dashboard hidden">
+            <h1>👤 Личный кабинет</h1>
+            <div id="userInfo" class="success"></div>
+
+            <div class="stats">
+                <div class="stat-card">
+                    <div class="stat-value" id="totalShifts">0</div>
+                    <div class="stat-label">Всего смен</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="totalHours">0</div>
+                    <div class="stat-label">Отработано часов</div>
+                </div>
+            </div>
+
+            <button id="openShiftBtn" class="btn-success" onclick="openShift()">🕐 Начать смену</button>
+            <button id="closeShiftBtn" class="btn-danger hidden" onclick="closeShift()">⏹️ Закончить смену</button>
+
+            <button class="btn-secondary" onclick="getHistory()">📋 История смен</button>
+            <button id="adminPanelBtn" class="btn-secondary hidden" onclick="showAdminPanel()">📊 Панель админа</button>
+            <button class="btn-secondary" onclick="logout()">🚪 Выйти</button>
+        </div>
+
+        <!-- АДМИН ПАНЕЛЬ -->
+        <div id="adminPanel" class="hidden">
+            <h1>📊 Панель администратора</h1>
+
+            <div class="stats">
+                <div class="stat-card">
+                    <div class="stat-value" id="adminTotalUsers">0</div>
+                    <div class="stat-label">Всего сотрудников</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="adminWorking">0</div>
+                    <div class="stat-label">Сейчас на смене</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="adminLate">0</div>
+                    <div class="stat-label">Опоздали сегодня</div>
+                </div>
+            </div>
+
+            <button onclick="downloadReport()">📥 Скачать отчёт (Excel)</button>
+            <button class="btn-secondary" onclick="showDashboard()">← Назад</button>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://127.0.0.1:8000';
+        let token = localStorage.getItem('token');
+        let userRole = localStorage.getItem('role');
+        let userName = localStorage.getItem('username');
+
+        // Показываем нужную форму
+        function showRegister() {
+            document.getElementById('loginForm').classList.add('hidden');
+            document.getElementById('registerForm').classList.remove('hidden');
+        }
+
+        function showLogin() {
+            document.getElementById('registerForm').classList.add('hidden');
+            document.getElementById('loginForm').classList.remove('hidden');
+        }
+
+        function showAdminPanel() {
+            document.getElementById('dashboard').classList.add('hidden');
+            document.getElementById('adminPanel').classList.remove('hidden');
+            loadAdminStats();
+        }
+
+        function showDashboard() {
+            document.getElementById('adminPanel').classList.add('hidden');
+            document.getElementById('dashboard').classList.remove('hidden');
+            loadDashboard();
+        }
+
+        // Показываем/скрываем поле для секрета админа
+        document.getElementById('regRole')?.addEventListener('change', function() {
+            const secretGroup = document.getElementById('adminSecretGroup');
+            if (this.value === 'admin') {
+                secretGroup.classList.remove('hidden');
+            } else {
+                secretGroup.classList.add('hidden');
+            }
+        });
+
+        // ЛОГИН
+        async function login() {
+            const username = document.getElementById('loginUsername').value;
+            const password = document.getElementById('loginPassword').value;
+
+            if (!username || !password) {
+                showError('loginError', 'Введите логин и пароль');
+                return;
+            }
+
+            try {
+                const formData = new FormData();
+                formData.append('username', username);
+                formData.append('password', password);
+
+                const response = await fetch(`${API_URL}/auth/login`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    token = data.access_token;
+                    userRole = data.role;
+                    userName = username;
+
+                    localStorage.setItem('token', token);
+                    localStorage.setItem('role', userRole);
+                    localStorage.setItem('username', userName);
+
+                    showDashboardPage();
+                } else {
+                    const error = await response.json();
+                    showError('loginError', error.detail || 'Ошибка входа');
+                }
+            } catch (err) {
+                showError('loginError', 'Ошибка соединения с сервером');
+                console.error(err);
+            }
+        }
+
+        // РЕГИСТРАЦИЯ
+        async function register() {
+            const login = document.getElementById('regLogin').value;
+            const password = document.getElementById('regPassword').value;
+            const role = document.getElementById('regRole').value;
+            const adminSecret = document.getElementById('regAdminSecret').value;
+
+            if (!login || !password) {
+                showError('registerError', 'Заполните все обязательные поля');
+                return;
+            }
+
+            const data = {
+                login: login,
+                password: password,
+                role: role
+            };
+
+            if (role === 'admin') {
+                data.admin_secret = adminSecret;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/auth/register`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                if (response.ok) {
+                    showSuccess('registerSuccess', 'Регистрация успешна! Теперь войдите.');
+                    setTimeout(() => {
+                        showLogin();
+                    }, 1500);
+                } else {
+                    const error = await response.json();
+                    showError('registerError', error.detail || 'Ошибка регистрации');
+                }
+            } catch (err) {
+                showError('registerError', 'Ошибка соединения с сервером');
+                console.error(err);
+            }
+        }
+
+        // ОТКРЫТЬ СМЕНУ
+        async function openShift() {
+            try {
+                const response = await fetch(`${API_URL}/shifts/open`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    alert(`✅ Смена открыта!\nВремя: ${new Date(data.start_time).toLocaleString()}`);
+                    loadDashboard();
+                } else {
+                    const error = await response.json();
+                    alert('❌ ' + (error.detail || 'Ошибка'));
+                }
+            } catch (err) {
+                alert('❌ Ошибка соединения с сервером');
+                console.error(err);
+            }
+        }
+
+        // ЗАКРЫТЬ СМЕНУ
+        async function closeShift() {
+            try {
+                const response = await fetch(`${API_URL}/shifts/close`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    alert(`✅ Смена закрыта!\nОтработано: ${data.duration_hours} ч.`);
+                    loadDashboard();
+                } else {
+                    const error = await response.json();
+                    alert('❌ ' + (error.detail || 'Ошибка'));
+                }
+            } catch (err) {
+                alert('❌ Ошибка соединения с сервером');
+                console.error(err);
+            }
+        }
+
+        // ИСТОРИЯ СМЕН
+        async function getHistory() {
+            try {
+                const response = await fetch(`${API_URL}/shifts/history`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    const shifts = await response.json();
+                    let message = `📋 История смен (${shifts.length} записей):\n\n`;
+                    shifts.slice(0, 10).forEach((shift, i) => {
+                        message += `${i+1}. ${new Date(shift.start_time).toLocaleString()}`;
+                        if (shift.end_time) {
+                            message += ` - ${new Date(shift.end_time).toLocaleString()}`;
+                            message += ` (${shift.duration_hours} ч.)`;
+                        }
+                        if (shift.is_late) {
+                            message += ` ⚠️ Опоздание: ${shift.late_minutes} мин.`;
+                        }
+                        message += '\n';
+                    });
+                    alert(message);
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        // ЗАГРУЗКА ДАШБОРДА
+        async function loadDashboard() {
+            document.getElementById('userInfo').textContent = `👤 ${userName} (${userRole === 'admin' ? 'Администратор' : 'Сотрудник'})`;
+
+            // Показываем/скрываем кнопку админа
+            if (userRole === 'admin') {
+                document.getElementById('adminPanelBtn').classList.remove('hidden');
+            } else {
+                document.getElementById('adminPanelBtn').classList.add('hidden');
+            }
+
+            // Загружаем историю для статистики
+            try {
+                const response = await fetch(`${API_URL}/shifts/history?limit=1000`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    const shifts = await response.json();
+                    document.getElementById('totalShifts').textContent = shifts.length;
+
+                    const totalHours = shifts.reduce((sum, shift) => sum + (shift.duration_hours || 0), 0);
+                    document.getElementById('totalHours').textContent = totalHours.toFixed(1);
+
+                    // Проверяем, есть ли открытая смена
+                    const openShift = shifts.find(s => !s.end_time);
+                    if (openShift) {
+                        document.getElementById('openShiftBtn').classList.add('hidden');
+                        document.getElementById('closeShiftBtn').classList.remove('hidden');
+                    } else {
+                        document.getElementById('openShiftBtn').classList.remove('hidden');
+                        document.getElementById('closeShiftBtn').classList.add('hidden');
+                    }
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        // АДМИН СТАТИСТИКА
+        async function loadAdminStats() {
+            try {
+                const response = await fetch(`${API_URL}/admin/dashboard`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('adminTotalUsers').textContent = data.total_users;
+                    document.getElementById('adminWorking').textContent = data.currently_working;
+                    document.getElementById('adminLate').textContent = data.late_today;
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        // СКАЧАТЬ ОТЧЁТ
+        async function downloadReport() {
+            const startDate = prompt('Дата начала (YYYY-MM-DD):', '2026-05-01');
+            const endDate = prompt('Дата конца (YYYY-MM-DD):', '2026-05-31');
+
+            if (startDate && endDate) {
+                window.open(`${API_URL}/admin/reports/shifts/excel?start_date=${startDate}&end_date=${endDate}`, '_blank');
+            }
+        }
+
+        // ВЫХОД
+        function logout() {
+            localStorage.removeItem('token');
+            localStorage.removeItem('role');
+            localStorage.removeItem('username');
+            token = null;
+            userRole = null;
+            userName = null;
+
+            document.getElementById('loginForm').classList.remove('hidden');
+            document.getElementById('registerForm').classList.add('hidden');
+            document.getElementById('dashboard').classList.add('hidden');
+            document.getElementById('adminPanel').classList.add('hidden');
+        }
+
+        // ПОКАЗАТЬ ДАШБОРД
+        function showDashboardPage() {
+            document.getElementById('loginForm').classList.add('hidden');
+            document.getElementById('registerForm').classList.add('hidden');
+            document.getElementById('dashboard').classList.remove('hidden');
+            document.getElementById('adminPanel').classList.add('hidden');
+            loadDashboard();
+        }
+
+        // ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+        function showError(elementId, message) {
+            const el = document.getElementById(elementId);
+            el.textContent = message;
+            el.classList.remove('hidden');
+            setTimeout(() => el.classList.add('hidden'), 5000);
+        }
+
+        function showSuccess(elementId, message) {
+            const el = document.getElementById(elementId);
+            el.textContent = message;
+            el.classList.remove('hidden');
+        }
+
+        // ПРИ ЗАГРУЗКЕ СТРАНИЦЫ
+        window.onload = function() {
+            if (token) {
+                showDashboardPage();
+            }
+        };
+    </script>
+</body>
+</html>
