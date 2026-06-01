@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime, date
 from typing import Optional, List
 from enum import Enum
@@ -7,6 +7,12 @@ from enum import Enum
 class RoleEnum(str, Enum):
     user = "user"
     admin = "admin"
+    manager = "manager"
+
+
+class PaymentUpdate(BaseModel):
+    user_id: int
+    payment_method: str
 
 
 class AbsenceType(str, Enum):
@@ -73,3 +79,74 @@ class AbsenceResponse(BaseModel):
     end_date: date
     comment: Optional[str] = None
     model_config = {"from_attributes": True}
+
+# --- Сырьё ---
+class RawMaterialCreate(BaseModel):
+    name: str
+    thickness: str
+    color: str
+    quantity: float
+
+class RawMaterialResponse(BaseModel):
+    id: int
+    name: str
+    thickness: str
+    color: str
+    quantity: float
+    model_config = ConfigDict(from_attributes=True)
+
+class TakeMaterialRequest(BaseModel):
+    material_id: int
+    amount: float
+
+# --- Готовая продукция ---
+class FinishedProductCreate(BaseModel):
+    name: str
+    quantity: int
+
+class FinishedProductResponse(BaseModel):
+    id: int
+    name: str
+    quantity: int
+    model_config = ConfigDict(from_attributes=True)
+
+class TakeProductRequest(BaseModel):
+    product_id: int
+    amount: int
+
+# --- Заготовки (Blanks) ---
+class BlankCreate(BaseModel):
+    name: str
+    quantity: int
+
+class BlankResponse(BaseModel):
+    id: int
+    name: str
+    quantity: int
+    model_config = ConfigDict(from_attributes=True)
+
+class TakeBlankRequest(BaseModel):
+    blank_id: int
+    amount: int
+
+# --- Отчёт о производстве ---
+class ProductionReportCreate(BaseModel):
+    blank_id: int
+    blanks_taken: int
+    items_produced: int
+    defect_amount: int = 0
+    defect_reason: Optional[str] = None
+    product_name: Optional[str] = None
+
+# --- Ответ журнала производства (ВАЖНО: не пропусти этот класс!) ---
+class ProductionLogResponse(BaseModel):
+    id: int
+    user_id: int
+    blank_id: int
+    blanks_taken: int
+    items_produced: int
+    defect_amount: int
+    defect_reason: Optional[str]
+    product_name: Optional[str]
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
