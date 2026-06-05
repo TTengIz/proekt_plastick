@@ -302,7 +302,7 @@ async def create_absence(
 
 
 # ==========================================
-#  ОТЧЕТЫ И ДАШБОРД (НОВОЕ!)
+#  ОТЧЕТЫ И ДАШБОРД
 # ==========================================
 
 @app.get("/admin/reports/shifts/excel")
@@ -402,6 +402,36 @@ async def get_admin_dashboard(
         "date": datetime.now(timezone.utc).date()
     }
 
+
+@app.get("/admin/shifts/all-history")
+async def admin_get_all_shifts(
+        current_user: Annotated[User, Depends(require_role(RoleEnum.admin))],
+        db: AsyncSession = Depends(get_db),
+        limit: int = 100
+):
+    """Админ видит историю смен ВСЕХ сотрудников"""
+    stmt = select(Shift).order_by(Shift.start_time.desc()).limit(limit)
+    result = await db.execute(stmt)
+    shifts = result.scalars().all()
+
+    # Формируем ответ с информацией о сотрудниках
+    result_with_users = []
+    for shift in shifts:
+        user_stmt = select(User).where(User.id == shift.user_id)
+        user = (await db.execute(user_stmt)).scalar_one_or_none()
+
+        shift_data = {
+            "id": shift.id,
+            "user_login": user.login if user else "Unknown",
+            "start_time": shift.start_time,
+            "end_time": shift.end_time,
+            "duration_hours": shift.duration_hours if hasattr(shift, 'duration_hours') else None,
+            "is_late": shift.is_late if hasattr(shift, 'is_late') else False,
+            "late_minutes": shift.late_minutes if hasattr(shift, 'late_minutes') else 0
+        }
+        result_with_users.append(shift_data)
+
+    return result_with_users
 
 # --- СКЛАД СЫРЬЯ (ТОЛЬКО АДМИН) ---
 
@@ -679,6 +709,31 @@ async def get_all_production_history(
 
     result = await db.execute(stmt)
     return result.scalars().all()
+
+
+@app.get("/products/list")
+async def get_products_list(
+        current_user: Annotated[User, Depends(get_current_user)],
+        db: AsyncSession = Depends(get_db)
+):
+    """Получить уникальные названия изделий из истории"""
+    # Получаем уникальные названия изделий
+    stmt = select(ProductionLog.product_name, ProductionLog.blank_id, Blank.name.label('blank_name')).join(
+        Blank, ProductionLog.blank_id == Blank.id
+    ).where(ProductionLog.product_name != None).distinct()
+
+    result = await db.execute(stmt)
+    products = result.all()
+
+    return [
+        {
+            "id": i,
+            "name": p.product_name,
+            "blank_id": p.blank_id,
+            "blank_name": p.blank_name
+        }
+        for i, p in enumerate(products)
+    ]
 
 # --- СКЛАД ГОТОВОЙ ПРОДУКЦИИ ---
 
@@ -1097,9 +1152,10 @@ async def calculate_payroll(
 
 @app.get("/manager/monitoring/status")
 async def manager_get_monitoring_status(
-        current_user: Annotated[User, Depends(require_role(RoleEnum.manager))],
-        db: AsyncSession = Depends(get_db),
-        target_date: date = Query(default_factory=lambda: datetime.now().date())
+    # Разрешаем и admin, и manager
+    current_user: Annotated[User, Depends(require_role(RoleEnum.admin, RoleEnum.manager))],
+    db: AsyncSession = Depends(get_db),
+    target_date: date = Query(default_factory=lambda: datetime.now().date())
 ):
     """Мониторинг статуса сотрудников (только для Менеджера)"""
     # 1. Берем всех сотрудников (кроме менеджеров)

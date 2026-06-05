@@ -376,10 +376,11 @@ class ShiftApp(QMainWindow):
 
     def start_shift(self):
         try:
-            r = requests.post(f"{API_URL}/shifts/start", headers={"Authorization": f"Bearer {self.token}"})
+            # ИСПРАВЛЕНО: вызываем /shifts/open вместо /shifts/start
+            r = requests.post(f"{API_URL}/shifts/open", headers={"Authorization": f"Bearer {self.token}"})
             if r.status_code == 200:
-                QMessageBox.information(self, "Смена начата", "Успешного рабочего дня!")
-                # Тут можно обновить статистику
+                QMessageBox.information(self, "Успех", "Смена начата успешно!")
+                self.load_production_data()  # Обновить данные при старте
             else:
                 QMessageBox.warning(self, "Ошибка", r.json().get("detail", "Не удалось начать смену"))
         except Exception as e:
@@ -387,41 +388,122 @@ class ShiftApp(QMainWindow):
 
     def end_shift(self):
         try:
-            r = requests.post(f"{API_URL}/shifts/end", headers={"Authorization": f"Bearer {self.token}"})
+            # ИСПРАВЛЕНО: вызываем /shifts/close вместо /shifts/end
+            r = requests.post(f"{API_URL}/shifts/close", headers={"Authorization": f"Bearer {self.token}"})
             if r.status_code == 200:
-                QMessageBox.information(self, "Смена завершена", f"Отработано: {r.json().get('duration', 0)} ч.")
+                dur = r.json().get("duration_hours", 0)
+                QMessageBox.information(self, "Успех", f"Смена завершена! Отработано: {dur} ч.")
+                self.load_production_data()  # Обновить данные
             else:
                 QMessageBox.warning(self, "Ошибка", r.json().get("detail", "Не удалось завершить смену"))
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", str(e))
 
     def show_shift_history(self):
-        # Твой старый метод истории
-        QMessageBox.information(self, "История", "Здесь будет история смен...")
+        """Показывает историю смен текущего пользователя"""
+        try:
+            if self.user_role == "admin":
+                url = f"{API_URL}/admin/shifts/all-history?limit=100"
+            else:
+                url = f"{API_URL}/shifts/history?limit=100"
+            r = requests.get(url, headers={"Authorization": f"Bearer {self.token}"})
+
+            if r.status_code != 200:
+                QMessageBox.warning(self, "Ошибка", r.json().get("detail", "Не удалось загрузить историю"))
+                return
+
+            shifts = r.json()
+
+            if not shifts:
+                QMessageBox.information(self, "История", "У вас пока нет смен.")
+                return
+
+            # Формируем красивое сообщение
+            msg = "<b>История ваших смен:</b><br><br>"
+
+            for i, s in enumerate(shifts[:20], 1):  # Показываем последние 20
+                # Парсим время начала
+                start_str = s.get("start_time", "")
+                if start_str:
+                    try:
+                        st = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
+                        start_formatted = st.strftime("%d.%m.%Y %H:%M")
+                    except:
+                        start_formatted = start_str
+                else:
+                    start_formatted = "неизвестно"
+
+                # Парсим время конца
+                end_str = s.get("end_time")
+                if end_str:
+                    try:
+                        et = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
+                        end_formatted = et.strftime("%H:%M")
+                    except:
+                        end_formatted = end_str
+                    duration = s.get("duration_hours", 0) or 0
+                    time_info = f" до {end_formatted} ({duration:.1f} ч)"
+                else:
+                    time_info = " — <b>открыта</b>"
+
+                # Опоздание
+                late_info = ""
+                if s.get("is_late"):
+                    late_minutes = s.get("late_minutes", 0)
+                    late_info = f" ⚠️ Опоздание: +{late_minutes} мин"
+
+                msg += f"<b>{i}.</b> {start_formatted}{time_info}{late_info}<br>"
+
+            # Показываем в красивом окне
+            dialog = QDialog(self)
+            dialog.setWindowTitle("📋 История смен")
+            dialog.setMinimumSize(500, 400)
+
+            layout = QVBoxLayout(dialog)
+
+            label = QLabel(msg)
+            label.setWordWrap(True)
+            label.setStyleSheet("font-size: 13px; padding: 10px;")
+            layout.addWidget(label)
+
+            close_btn = QPushButton("Закрыть")
+            close_btn.setStyleSheet("background: #6c757d; color: white; border-radius: 8px; padding: 8px;")
+            close_btn.clicked.connect(dialog.accept)
+            layout.addWidget(close_btn)
+
+            dialog.exec()
+
+        except requests.exceptions.ConnectionError:
+            QMessageBox.critical(self, "Ошибка", "Нет связи с сервером.")
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Не удалось загрузить историю: {str(e)}")
 
     def _setup_shifts_interface(self):
-        """Полностью пересобирает вкладку 'Смены' под текущую роль"""
+        """Создает интерфейс вкладки 'Смены' с нуля"""
 
-        if not self.shifts_tab:
-            print("❌ self.shifts_tab не инициализирован!")
+        if not hasattr(self, 'shifts_tab') or not self.shifts_tab:
+            print("❌ self.shifts_tab не существует!")
             return
 
-        print(f"🛠️ Пересобираем интерфейс смен. Роль: {self.user_role}")
+        print(f"🛠️ Создаем интерфейс смен. Роль: {self.user_role}")
 
-        # 1. Очистка старого layout
-        old_layout = self.shifts_tab.layout()
-        if old_layout:
-            while old_layout.count():
-                item = old_layout.takeAt(0)
-                widget = item.widget()
-                if widget:
-                    widget.deleteLater()
+        # Проверяем, есть ли уже layout - если да, удаляем его полностью
+        if self.shifts_tab.layout():
+            # Принудительно удаляем все виджеты
+            while self.shifts_tab.layout().count():
+                item = self.shifts_tab.layout().takeAt(0)
+                if item.widget():
+                    item.widget().close()
+                    item.widget().setParent(None)
+            # Удаляем сам layout
+            old_layout = self.shifts_tab.layout()
             self.shifts_tab.setLayout(None)
+            del old_layout
 
-        # 2. Новый layout
+        # Создаем НОВЫЙ layout
         new_layout = QVBoxLayout()
-        new_layout.setSpacing(15)
         new_layout.setContentsMargins(20, 20, 20, 20)
+        new_layout.setSpacing(15)
 
         # === БЛОК 1: КНОПКИ СМЕНЫ (Для Сотрудника И Админа) ===
         if self.user_role in ["user", "admin"]:
@@ -495,10 +577,16 @@ class ShiftApp(QMainWindow):
             new_layout.addWidget(monitoring_btn)
 
         new_layout.addStretch()
+
+        # Устанавливаем layout
         self.shifts_tab.setLayout(new_layout)
+
+        # Принудительно обновляем
         self.shifts_tab.update()
         self.shifts_tab.repaint()
-        print("✅ Интерфейс смен обновлен")
+        QApplication.processEvents()
+
+        print("✅ Интерфейс смен создан")
 
     def setup_production_tab(self):
         layout = QVBoxLayout(self.production_tab)
@@ -511,12 +599,12 @@ class ShiftApp(QMainWindow):
         form_layout = QGridLayout(form_box)
         form_layout.setSpacing(12)
         form_layout.setContentsMargins(10, 10, 10, 10)
-        form_layout.setColumnStretch(1, 1)  # Поля ввода растягиваются, лейблы остаются компактными
+        form_layout.setColumnStretch(1, 1)
 
         # Создаём виджеты
-        self.blank_combo = QComboBox()
-        self.blank_combo.setMinimumHeight(36)
-        self.blank_combo.addItem("Загрузка...")
+        self.product_combo = QComboBox()
+        self.product_combo.setMinimumHeight(36)
+        self.product_combo.addItem("Загрузка...")
 
         self.in_taken = QLineEdit("1")
         self.in_taken.setMinimumHeight(36)
@@ -525,26 +613,26 @@ class ShiftApp(QMainWindow):
         self.in_defect = QLineEdit("0")
         self.in_defect.setMinimumHeight(36)
 
-        self.in_product = QLineEdit()
-        self.in_product.setMinimumHeight(36)
-        self.in_product.setPlaceholderText("Название готового изделия")
-
         self.in_reason = QLineEdit()
         self.in_reason.setMinimumHeight(36)
         self.in_reason.setPlaceholderText("Причина недостачи или брака")
 
         # Стиль для подписей
         lbl_style = "font-weight: bold; color: #004080; font-size: 14px;"
-        l_blank = QLabel("Заготовка:"); l_blank.setStyleSheet(lbl_style)
-        l_taken = QLabel("Взято (шт):"); l_taken.setStyleSheet(lbl_style)
-        l_prod = QLabel("Годных (шт):"); l_prod.setStyleSheet(lbl_style)
-        l_defect = QLabel("Брак (шт):"); l_defect.setStyleSheet(lbl_style)
-        l_item = QLabel("Изделие:"); l_item.setStyleSheet(lbl_style)
-        l_reason = QLabel("Причина:"); l_reason.setStyleSheet(lbl_style)
+        l_product = QLabel("Изделие:");
+        l_product.setStyleSheet(lbl_style)
+        l_taken = QLabel("Взято заготовок (шт):");
+        l_taken.setStyleSheet(lbl_style)
+        l_prod = QLabel("Сделано годных (шт):");
+        l_prod.setStyleSheet(lbl_style)
+        l_defect = QLabel("Брак (шт):");
+        l_defect.setStyleSheet(lbl_style)
+        l_reason = QLabel("Причина:");
+        l_reason.setStyleSheet(lbl_style)
 
         # Расставляем в сетку
-        form_layout.addWidget(l_blank, 0, 0)
-        form_layout.addWidget(self.blank_combo, 0, 1)
+        form_layout.addWidget(l_product, 0, 0)
+        form_layout.addWidget(self.product_combo, 0, 1)
 
         form_layout.addWidget(l_taken, 1, 0)
         form_layout.addWidget(self.in_taken, 1, 1)
@@ -555,11 +643,8 @@ class ShiftApp(QMainWindow):
         form_layout.addWidget(l_defect, 3, 0)
         form_layout.addWidget(self.in_defect, 3, 1)
 
-        form_layout.addWidget(l_item, 4, 0)
-        form_layout.addWidget(self.in_product, 4, 1)
-
-        form_layout.addWidget(l_reason, 5, 0)
-        form_layout.addWidget(self.in_reason, 5, 1)
+        form_layout.addWidget(l_reason, 4, 0)
+        form_layout.addWidget(self.in_reason, 4, 1)
 
         # Кнопка на всю ширину формы
         submit_btn = QPushButton("Сдать отчёт")
@@ -567,7 +652,7 @@ class ShiftApp(QMainWindow):
             "background: #28a745; color: white; border-radius: 8px; font-weight: bold; font-size: 16px; padding: 8px;")
         submit_btn.setMinimumHeight(42)
         submit_btn.clicked.connect(self.submit_production_report)
-        form_layout.addWidget(submit_btn, 6, 0, 1, 2)
+        form_layout.addWidget(submit_btn, 5, 0, 1, 2)
 
         layout.addWidget(form_box)
 
@@ -577,7 +662,7 @@ class ShiftApp(QMainWindow):
         self.prod_table.setColumnCount(5)
         self.prod_table.setHorizontalHeaderLabels(["Дата", "Изделие", "Взято", "Годных", "Брак"])
         self.prod_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.prod_table.verticalHeader().setVisible(False)  # Убираем лишние номера строк
+        self.prod_table.verticalHeader().setVisible(False)
         layout.addWidget(self.prod_table)
 
         refresh_btn = QPushButton("Обновить данные")
@@ -630,8 +715,8 @@ class ShiftApp(QMainWindow):
         # Заголовок
         layout.addWidget(QLabel("<b>Склад сырья:</b>"))
 
-        # Кнопка добавления сырья - ТОЛЬКО ДЛЯ РУКОВОДИТЕЛЯ
-        if self.user_role == "manager":
+        # Кнопка добавления сырья - ДЛЯ РУКОВОДИТЕЛЯ И АДМИНА
+        if self.user_role in ["manager", "admin"]:
             add_raw_btn = QPushButton("➕ Добавить сырье (Приход)")
             add_raw_btn.setStyleSheet(
                 "background: #20c997; color: white; border: none; "
@@ -1029,14 +1114,21 @@ class ShiftApp(QMainWindow):
 
                 # --- ДОБАВЛЕНИЕ СПЕЦИФИЧНЫХ ВКЛАДОК ---
                 if self.user_role == "admin":
-                    self.tabs.addTab(self.monitoring_tab, "Мониторинг")
+                    # Пересоздаем вкладку "Склад сырья"
+                    self.raw_tab = QWidget()
+                    self.setup_raw_tab()
                     self.tabs.addTab(self.raw_tab, "Склад сырья")
+                    self.tabs.addTab(self.monitoring_tab, "Мониторинг")
                     self.tabs.addTab(self.blanks_tab, "Склад заготовок")
                     self.load_monitoring_status()
                     self.load_raw_materials()
                     self.load_blanks_list()
 
                 elif self.user_role == "manager":
+                    # Пересоздаем вкладку "Склад сырья" для руководителя
+                    self.raw_tab = QWidget()
+                    self.setup_raw_tab()
+                    self.tabs.addTab(self.raw_tab, "Склад сырья")
                     self.tabs.addTab(self.finance_tab, "Финансы")
                     self.tabs.addTab(self.payroll_tab, "Зарплата")
                     self.load_finance_data()
@@ -1173,8 +1265,8 @@ class ShiftApp(QMainWindow):
 
         # Таблица
         table = QTableWidget()
-        table.setColumnCount(5)
-        table.setHorizontalHeaderLabels(["Сотрудник", "Роль", "Статус", "Время начала", "Длительность"])
+        table.setColumnCount(4)
+        table.setHorizontalHeaderLabels(["Сотрудник", "Статус", "Время начала", "Длительность"])
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         layout.addWidget(table)
 
@@ -1197,7 +1289,6 @@ class ShiftApp(QMainWindow):
                     for i, emp in enumerate(employees):
                         # Логин
                         table.setItem(i, 0, QTableWidgetItem(emp['login']))
-                        table.setItem(i, 1, QTableWidgetItem(emp.get('role', 'user')))
 
                         # Статус с цветом
                         status_text = self._get_status_text(emp['status'])
@@ -1226,49 +1317,77 @@ class ShiftApp(QMainWindow):
     # --- ПРОИЗВОДСТВО ---
 
     def load_production_data(self):
-        # Загрузка списка заготовок
+        # 1. Загрузка списка заготовок/изделий со склада
         try:
             r = requests.get(f"{API_URL}/warehouse/blanks", headers={"Authorization": f"Bearer {self.token}"})
             if r.status_code == 200:
                 blanks = r.json()
-                self.blank_combo.clear()
+                self.product_combo.clear()
+
                 if not blanks:
-                    self.blank_combo.addItem("Нет заготовок")
+                    self.product_combo.addItem("Нет позиций")
                 else:
                     for b in blanks:
-                        self.blank_combo.addItem(f"{b['name']} (ID: {b['id']}) Остаток: {b['quantity']}",
-                                                 userData=b['id'])
-        except:
-            pass
+                        # Показываем ВСЕ позиции, даже если их 0
+                        # Формат: "Название (Остаток: X)"
+                        name = b['name']
+                        qty = b.get('quantity', 0)
 
-        # Загрузка истории
+                        display_text = f"{name} (Остаток: {qty})"
+
+                        # Сохраняем ID и Имя внутри, чтобы потом отправить на сервер
+                        self.product_combo.addItem(display_text, userData=b['id'])
+
+        except Exception as e:
+            print(f"Ошибка загрузки склада: {e}")
+
+        # 2. Загрузка истории выработки
         try:
             r = requests.get(f"{API_URL}/user/production/history", headers={"Authorization": f"Bearer {self.token}"})
             if r.status_code == 200:
                 logs = r.json()
                 self.prod_table.setRowCount(len(logs))
                 for i, log in enumerate(logs):
+                    # Форматируем дату
                     date_str = datetime.fromisoformat(log['created_at'].replace("Z", "+00:00")).strftime("%d.%m %H:%M")
+
                     self.prod_table.setItem(i, 0, QTableWidgetItem(date_str))
-                    self.prod_table.setItem(i, 1, QTableWidgetItem(log.get('product_name', '-')))
+                    self.prod_table.setItem(i, 1, QTableWidgetItem(
+                        log.get('product_name') or log.get('blank_name') or 'Изделие'))
                     self.prod_table.setItem(i, 2, QTableWidgetItem(str(log['blanks_taken'])))
                     self.prod_table.setItem(i, 3, QTableWidgetItem(str(log['items_produced'])))
-                    self.prod_table.setItem(i, 4, QTableWidgetItem(str(log['defect_amount'])))
-        except:
-            pass
+
+                    # ВАЖНО: Корректно выводим БРАК
+                    defect = log.get('defect_amount', 0)
+                    if not defect: defect = 0  # Если None, то 0
+                    self.prod_table.setItem(i, 4, QTableWidgetItem(str(defect)))
+
+                    # Красим строку, если был брак, для наглядности
+                    if defect > 0:
+                        self.prod_table.item(i, 4).setBackground(QColor("#fff3cd"))
+
+        except Exception as e:
+            print(f"Ошибка истории: {e}")
 
     def submit_production_report(self):
         # Проверка данных
-        if self.blank_combo.count() == 0 or self.blank_combo.currentText() == "Нет заготовок":
-            QMessageBox.warning(self, "Ошибка", "Выберите заготовку")
+        if self.product_combo.count() == 0 or self.product_combo.currentText() == "Нет изделий":
+            QMessageBox.warning(self, "Ошибка", "Выберите изделие")
             return
 
-        blank_id = self.blank_combo.currentData()
+        # Получаем данные из combo
+        selected_data = self.product_combo.currentData()
+        if not selected_data:
+            QMessageBox.warning(self, "Ошибка", "Некорректный выбор изделия")
+            return
+
+        blank_id = selected_data['blank_id']
+        product_name = selected_data['product_name']
+
         blanks_taken = int(self.in_taken.text() or 0)
         items_produced = int(self.in_produced.text() or 0)
         defect_amount = int(self.in_defect.text() or 0)
         reason = self.in_reason.text().strip()
-        product_name = self.in_product.text().strip()
 
         if blanks_taken <= 0:
             QMessageBox.warning(self, "Ошибка", "Укажите количество взятых заготовок")
@@ -1294,15 +1413,17 @@ class ShiftApp(QMainWindow):
                 "items_produced": items_produced,
                 "defect_amount": defect_amount,
                 "defect_reason": reason if shortage > 0 else None,
-                "product_name": product_name if product_name else None
+                "product_name": product_name
             }
             r = requests.post(f"{API_URL}/user/production/report", json=payload,
                               headers={"Authorization": f"Bearer {self.token}"})
             if r.status_code == 200:
                 QMessageBox.information(self, "Успех", "Отчёт принят!")
                 # Очистка полей
-                self.in_taken.setText("1"); self.in_produced.setText("0"); self.in_defect.setText("0")
-                self.in_reason.clear(); self.in_product.clear()
+                self.in_taken.setText("1")
+                self.in_produced.setText("0")
+                self.in_defect.setText("0")
+                self.in_reason.clear()
                 self.load_production_data()
             else:
                 QMessageBox.critical(self, "Ошибка", r.json().get("detail", "Ошибка сервера"))
