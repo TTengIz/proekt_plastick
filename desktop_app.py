@@ -29,6 +29,13 @@ class ShiftApp(QMainWindow):
         self.username = None
         self.server_process = None
         self.server_started = False
+        self.blank_combo = None
+        self.in_taken = None
+        self.in_produced = None
+        self.in_defect = None
+        self.in_product = None
+        self.in_reason = None
+        self.prod_table = None
 
         self.setWindowTitle("Учёт смен и производства")
         self.setMinimumSize(900, 650)
@@ -275,6 +282,12 @@ class ShiftApp(QMainWindow):
         layout.addStretch()
         return page
 
+    def _on_tab_changed(self, index):
+        """Вызывается при переключении вкладки"""
+        if self.tabs.widget(index) == self.production_tab:
+            print("🔄 Переключились на вкладку Производство")
+            self.load_production_data()
+
     def create_dashboard_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -302,9 +315,13 @@ class ShiftApp(QMainWindow):
         self.tabs.addTab(self.shifts_tab, "Смены")
 
         # Вкладка 2: Производство
+        # Вкладка 2: Производство
         self.production_tab = QWidget()
         self.setup_production_tab()
         self.tabs.addTab(self.production_tab, "Производство")
+
+        # Загружаем данные при переключении на вкладку
+        self.tabs.currentChanged.connect(self._on_tab_changed)
 
         # Вкладка 3: Мониторинг (Только админ)
         self.monitoring_tab = QWidget()
@@ -601,10 +618,10 @@ class ShiftApp(QMainWindow):
         form_layout.setContentsMargins(10, 10, 10, 10)
         form_layout.setColumnStretch(1, 1)
 
-        # Создаём виджеты
-        self.product_combo = QComboBox()
-        self.product_combo.setMinimumHeight(36)
-        self.product_combo.addItem("Загрузка...")
+        # === СОЗДАЁМ ВИДЖЕТЫ ===
+        self.blank_combo = QComboBox()
+        self.blank_combo.setMinimumHeight(36)
+        self.blank_combo.addItem("Загрузка заготовок...")
 
         self.in_taken = QLineEdit("1")
         self.in_taken.setMinimumHeight(36)
@@ -617,22 +634,25 @@ class ShiftApp(QMainWindow):
         self.in_reason.setMinimumHeight(36)
         self.in_reason.setPlaceholderText("Причина недостачи или брака")
 
+        # Инициализируем список ID заготовок
+        self.blank_ids = []
+
         # Стиль для подписей
         lbl_style = "font-weight: bold; color: #004080; font-size: 14px;"
-        l_product = QLabel("Изделие:");
-        l_product.setStyleSheet(lbl_style)
-        l_taken = QLabel("Взято заготовок (шт):");
+        l_blank = QLabel("Заготовка:")
+        l_blank.setStyleSheet(lbl_style)
+        l_taken = QLabel("Взято заготовок (шт):")
         l_taken.setStyleSheet(lbl_style)
-        l_prod = QLabel("Сделано годных (шт):");
+        l_prod = QLabel("Сделано годных (шт):")
         l_prod.setStyleSheet(lbl_style)
-        l_defect = QLabel("Брак (шт):");
+        l_defect = QLabel("Брак (шт):")
         l_defect.setStyleSheet(lbl_style)
-        l_reason = QLabel("Причина:");
+        l_reason = QLabel("Причина:")
         l_reason.setStyleSheet(lbl_style)
 
-        # Расставляем в сетку
-        form_layout.addWidget(l_product, 0, 0)
-        form_layout.addWidget(self.product_combo, 0, 1)
+        # === РАССТАВЛЯЕМ В СЕТКУ ===
+        form_layout.addWidget(l_blank, 0, 0)
+        form_layout.addWidget(self.blank_combo, 0, 1)
 
         form_layout.addWidget(l_taken, 1, 0)
         form_layout.addWidget(self.in_taken, 1, 1)
@@ -1085,6 +1105,7 @@ class ShiftApp(QMainWindow):
             r = requests.post(f"{API_URL}/auth/login", data={"username": u, "password": p})
             if r.status_code == 200:
                 d = r.json()
+                self.load_production_data()
                 self.token = d["access_token"]
                 self.user_role = d["role"]
                 self.username = u
@@ -1115,6 +1136,7 @@ class ShiftApp(QMainWindow):
                 # --- ДОБАВЛЕНИЕ СПЕЦИФИЧНЫХ ВКЛАДОК ---
                 if self.user_role == "admin":
                     # Пересоздаем вкладку "Склад сырья"
+                    self.load_production_data()
                     self.raw_tab = QWidget()
                     self.setup_raw_tab()
                     self.tabs.addTab(self.raw_tab, "Склад сырья")
@@ -1126,6 +1148,7 @@ class ShiftApp(QMainWindow):
 
                 elif self.user_role == "manager":
                     # Пересоздаем вкладку "Склад сырья" для руководителя
+                    self.load_production_data()
                     self.raw_tab = QWidget()
                     self.setup_raw_tab()
                     self.tabs.addTab(self.raw_tab, "Склад сырья")
@@ -1317,76 +1340,96 @@ class ShiftApp(QMainWindow):
     # --- ПРОИЗВОДСТВО ---
 
     def load_production_data(self):
-        # 1. Загрузка списка заготовок/изделий со склада
+        """Загрузка заготовок и истории производства"""
+        print("🔄 Загрузка данных производства...")
+
+        # === ЧАСТЬ 1: ЗАГРУЗКА ЗАГОТОВОК ===
         try:
             r = requests.get(f"{API_URL}/warehouse/blanks", headers={"Authorization": f"Bearer {self.token}"})
+            print(f"📡 Запрос заготовок: статус {r.status_code}")
+
             if r.status_code == 200:
                 blanks = r.json()
-                self.product_combo.clear()
+                print(f"✅ Получено заготовок: {len(blanks)}")
+
+                self.blank_combo.clear()
+                self.blank_ids.clear()
 
                 if not blanks:
-                    self.product_combo.addItem("Нет позиций")
+                    self.blank_combo.addItem("Нет заготовок")
+                    print("⚠️ Список заготовок пуст!")
                 else:
                     for b in blanks:
-                        # Показываем ВСЕ позиции, даже если их 0
-                        # Формат: "Название (Остаток: X)"
-                        name = b['name']
-                        qty = b.get('quantity', 0)
+                        display_text = f"{b['name']} (Остаток: {b['quantity']})"
+                        self.blank_combo.addItem(display_text, userData=b['id'])
+                        self.blank_ids.append(b['id'])
+                        print(f"  ➕ {display_text} (ID: {b['id']})")
 
-                        display_text = f"{name} (Остаток: {qty})"
+                    print(f"✅ Всего элементов в combo: {self.blank_combo.count()}")
+            else:
+                print(f"❌ Ошибка сервера: {r.status_code} - {r.text}")
 
-                        # Сохраняем ID и Имя внутри, чтобы потом отправить на сервер
-                        self.product_combo.addItem(display_text, userData=b['id'])
-
+        except requests.exceptions.ConnectionError:
+            print("❌ НЕТ СВЯЗИ С СЕРВЕРОМ!")
         except Exception as e:
-            print(f"Ошибка загрузки склада: {e}")
+            print(f"❌ Ошибка загрузки заготовок: {e}")
+            import traceback
+            traceback.print_exc()
 
-        # 2. Загрузка истории выработки
+        # === ЧАСТЬ 2: ЗАГРУЗКА ИСТОРИИ ===
         try:
-            r = requests.get(f"{API_URL}/user/production/history", headers={"Authorization": f"Bearer {self.token}"})
+            r = requests.get(f"{API_URL}/user/production/history",
+                             headers={"Authorization": f"Bearer {self.token}"})
             if r.status_code == 200:
                 logs = r.json()
                 self.prod_table.setRowCount(len(logs))
                 for i, log in enumerate(logs):
-                    # Форматируем дату
                     date_str = datetime.fromisoformat(log['created_at'].replace("Z", "+00:00")).strftime("%d.%m %H:%M")
-
                     self.prod_table.setItem(i, 0, QTableWidgetItem(date_str))
-                    self.prod_table.setItem(i, 1, QTableWidgetItem(
-                        log.get('product_name') or log.get('blank_name') or 'Изделие'))
+                    self.prod_table.setItem(i, 1, QTableWidgetItem(log.get('product_name', '-')))
                     self.prod_table.setItem(i, 2, QTableWidgetItem(str(log['blanks_taken'])))
                     self.prod_table.setItem(i, 3, QTableWidgetItem(str(log['items_produced'])))
-
-                    # ВАЖНО: Корректно выводим БРАК
-                    defect = log.get('defect_amount', 0)
-                    if not defect: defect = 0  # Если None, то 0
-                    self.prod_table.setItem(i, 4, QTableWidgetItem(str(defect)))
-
-                    # Красим строку, если был брак, для наглядности
-                    if defect > 0:
-                        self.prod_table.item(i, 4).setBackground(QColor("#fff3cd"))
-
+                    self.prod_table.setItem(i, 4, QTableWidgetItem(str(log['defect_amount'])))
+                print(f"✅ Загружено записей истории: {len(logs)}")
+            else:
+                print(f"❌ Ошибка загрузки истории: {r.status_code}")
         except Exception as e:
-            print(f"Ошибка истории: {e}")
+            print(f"❌ Ошибка загрузки истории: {e}")
 
     def submit_production_report(self):
+        """Отправка отчёта о производстве со списанием заготовок"""
+
         # Проверка данных
-        if self.product_combo.count() == 0 or self.product_combo.currentText() == "Нет изделий":
-            QMessageBox.warning(self, "Ошибка", "Выберите изделие")
+        if self.blank_combo.count() == 0 or self.blank_combo.currentText() in ["Нет заготовок",
+                                                                               "Загрузка заготовок..."]:
+            QMessageBox.warning(self, "Ошибка", "Выберите заготовку из списка!")
             return
 
-        # Получаем данные из combo
-        selected_data = self.product_combo.currentData()
-        if not selected_data:
-            QMessageBox.warning(self, "Ошибка", "Некорректный выбор изделия")
+        # Получаем ID заготовки
+        blank_id = self.blank_combo.currentData()
+
+        # Если currentData() вернул None - берём из списка blank_ids
+        if blank_id is None:
+            current_index = self.blank_combo.currentIndex()
+            if hasattr(self, 'blank_ids') and 0 <= current_index < len(self.blank_ids):
+                blank_id = self.blank_ids[current_index]
+                print(f"✅ ID получен из blank_ids: {blank_id}")
+            else:
+                QMessageBox.warning(self, "Ошибка", "Не выбрано изделие! Выберите заготовку из списка.")
+                return
+
+        if blank_id is None:
+            QMessageBox.warning(self, "Ошибка", "Не удалось определить ID изделия!")
             return
 
-        blank_id = selected_data['blank_id']
-        product_name = selected_data['product_name']
+        try:
+            blanks_taken = int(self.in_taken.text() or 0)
+            items_produced = int(self.in_produced.text() or 0)
+            defect_amount = int(self.in_defect.text() or 0)
+        except ValueError:
+            QMessageBox.warning(self, "Ошибка", "Количество должно быть числом!")
+            return
 
-        blanks_taken = int(self.in_taken.text() or 0)
-        items_produced = int(self.in_produced.text() or 0)
-        defect_amount = int(self.in_defect.text() or 0)
         reason = self.in_reason.text().strip()
 
         if blanks_taken <= 0:
@@ -1398,37 +1441,88 @@ class ShiftApp(QMainWindow):
         shortage = blanks_taken - total_output
 
         if shortage > 0 and not reason:
-            reason, ok = QInputDialog.getText(self, "ВНИМАНИЕ: Недостача",
-                                              f"Вы взяли {blanks_taken}, а сдали {total_output}.\nНедостача: {shortage} шт.\nУкажите причину:")
+            reason, ok = QInputDialog.getText(
+                self, "ВНИМАНИЕ: Недостача",
+                f"Вы взяли {blanks_taken}, а сдали {total_output}.\nНедостача: {shortage} шт.\nУкажите причину:"
+            )
             if not ok or not reason.strip():
                 QMessageBox.warning(self, "Ошибка", "Необходимо указать причину недостачи!")
                 return
             reason = reason.strip()
 
-        # Отправка
+        # Получаем название заготовки для product_name
+        selected_blank_name = self.blank_combo.currentText()
+        if " (Остаток:" in selected_blank_name:
+            product_name = selected_blank_name.split(" (Остаток:")[0].strip()
+        else:
+            product_name = selected_blank_name
+
+        # === ОТПРАВКА ОТЧЁТА И СПИСАНИЕ ЗАГОТОВОК ===
         try:
+            # 1. Сначала отправляем отчёт о производстве
             payload = {
-                "blank_id": blank_id,
+                "blank_id": int(blank_id),
                 "blanks_taken": blanks_taken,
                 "items_produced": items_produced,
                 "defect_amount": defect_amount,
                 "defect_reason": reason if shortage > 0 else None,
                 "product_name": product_name
             }
-            r = requests.post(f"{API_URL}/user/production/report", json=payload,
-                              headers={"Authorization": f"Bearer {self.token}"})
-            if r.status_code == 200:
-                QMessageBox.information(self, "Успех", "Отчёт принят!")
-                # Очистка полей
-                self.in_taken.setText("1")
-                self.in_produced.setText("0")
-                self.in_defect.setText("0")
-                self.in_reason.clear()
-                self.load_production_data()
+
+            print(f"📤 Отправляем отчёт: {payload}")
+
+            r = requests.post(
+                f"{API_URL}/user/production/report",
+                json=payload,
+                headers={"Authorization": f"Bearer {self.token}"}
+            )
+
+            if r.status_code != 200:
+                try:
+                    error_detail = r.json().get("detail", "Неизвестная ошибка")
+                    if isinstance(error_detail, list):
+                        error_detail = " | ".join(str(item) for item in error_detail)
+                    QMessageBox.critical(self, "Ошибка", str(error_detail))
+                except:
+                    QMessageBox.critical(self, "Ошибка", f"Ошибка сервера: {r.status_code}")
+                return
+
+            # 2. ✅ СПИСЫВАЕМ заготовки со склада
+            print(f"📦 Списываем {blanks_taken} заготовок со склада...")
+            take_payload = {
+                "blank_id": int(blank_id),
+                "amount": blanks_taken
+            }
+
+            take_r = requests.post(
+                f"{API_URL}/warehouse/blanks/take",
+                json=take_payload,
+                headers={"Authorization": f"Bearer {self.token}"}
+            )
+
+            if take_r.status_code == 200:
+                remaining = take_r.json().get('remaining', blanks_taken)
+                print(f"✅ Заготовки списаны! Остаток: {remaining}")
             else:
-                QMessageBox.critical(self, "Ошибка", r.json().get("detail", "Ошибка сервера"))
+                print(f"⚠️ Не удалось списать заготовки: {take_r.status_code}")
+                # Не показываем ошибку пользователю, так как отчёт уже принят
+
+            # 3. Успех!
+            QMessageBox.information(self, "Успех", f"Отчёт принят!\nЗаготовки списаны со склада.")
+
+            # Очистка полей
+            self.in_taken.setText("1")
+            self.in_produced.setText("0")
+            self.in_defect.setText("0")
+            self.in_reason.clear()
+
+            # Обновляем данные (заготовки и историю)
+            self.load_production_data()
+
+        except requests.exceptions.ConnectionError:
+            QMessageBox.critical(self, "Ошибка", "Нет связи с сервером. Убедитесь, что сервер запущен.")
         except Exception as e:
-            QMessageBox.critical(self, "Ошибка", str(e))
+            QMessageBox.critical(self, "Ошибка", f"Не удалось отправить отчёт: {str(e)}")
 
     # --- СКЛАД ЗАГОТОВОК (АДМИН) ---
 

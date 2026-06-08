@@ -1,6 +1,8 @@
 from fastapi import FastAPI, Depends, HTTPException, status, Query, Body
 from fastapi.security import OAuth2PasswordRequestForm
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func, delete
@@ -1264,3 +1266,28 @@ async def delete_user(
     await db.delete(user)
     await db.commit()
     return {"message": "Пользователь удален", "login": user.login}
+
+# Создаём папки если нет
+Path("static").mkdir(exist_ok=True)
+Path("static/css").mkdir(exist_ok=True)
+Path("static/js").mkdir(exist_ok=True)
+
+# Раздаём статические файлы
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Главная страница
+@app.get("/")
+async def root():
+    return FileResponse("static/index.html")
+
+@app.get("/login")
+async def login_page():
+    return FileResponse("static/login.html")
+
+@app.get("/dashboard")
+async def dashboard_page():
+    return FileResponse("static/dashboard.html")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#667eea">
+    <title>Личный кабинет</title>
+    <link rel="manifest" href="/static/manifest.json">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+            background: #f5f5f5;
+            padding-bottom: 80px;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            padding-top: env(safe-area-inset-top);
+        }
+
+        .header h1 {
+            font-size: 24px;
+            margin-bottom: 5px;
+        }
+
+        .logout-btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+
+        .tabs {
+            display: flex;
+            overflow-x: auto;
+            background: white;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .tab {
+            padding: 15px 20px;
+            border: none;
+            background: none;
+            font-size: 14px;
+            font-weight: 500;
+            color: #666;
+            white-space: nowrap;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+        }
+
+        .tab.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+
+        .content {
+            padding: 20px;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .btn {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            cursor: pointer;
+        }
+
+        .btn-green {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-red {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-blue {
+            background: #007bff;
+            color: white;
+        }
+
+        .btn-purple {
+            background: #6f42c1;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1 id="welcome">Привет!</h1>
+        <button class="logout-btn" onclick="logout()">Выйти</button>
+    </div>
+
+    <div class="tabs" id="tabs"></div>
+
+    <div class="content" id="content"></div>
+
+    <script>
+        const API_URL = window.location.origin;
+        let token = localStorage.getItem('token');
+        let userRole = localStorage.getItem('user_role');
+        let username = localStorage.getItem('username');
+
+        if (!token) {
+            window.location.href = '/';
+        }
+
+        document.getElementById('welcome').textContent = `Привет, ${username}!`;
+
+        // Определяем вкладки по роли
+        const tabsConfig = {
+            'user': ['shifts', 'production'],
+            'admin': ['shifts', 'production', 'monitoring', 'blanks', 'raw'],
+            'manager': ['shifts', 'production', 'finance', 'payroll']
+        };
+
+        const tabs = {
+            'shifts': 'Смены',
+            'production': 'Производство',
+            'monitoring': 'Мониторинг',
+            'blanks': 'Склад заготовок',
+            'raw': 'Склад сырья',
+            'finance': 'Финансы',
+            'payroll': 'Зарплата'
+        };
+
+        const userTabs = tabsConfig[userRole] || tabsConfig['user'];
+
+        // Создаём вкладки
+        const tabsContainer = document.getElementById('tabs');
+        userTabs.forEach((tabId, index) => {
+            const btn = document.createElement('button');
+            btn.className = 'tab' + (index === 0 ? ' active' : '');
+            btn.textContent = tabs[tabId];
+            btn.onclick = () => showTab(tabId, btn);
+            tabsContainer.appendChild(btn);
+        });
+
+        // Показываем первую вкладку
+        showTab(userTabs[0]);
+
+        function showTab(tabId, btnElement) {
+            // Обновляем активную вкладку
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            if (btnElement) btnElement.classList.add('active');
+
+            // Загружаем контент
+            const content = document.getElementById('content');
+            content.innerHTML = '<div style="padding: 40px; text-align: center; color: #666;">Загрузка...</div>';
+
+            // Здесь можно загрузить данные с сервера
+            loadTabContent(tabId, content);
+        }
+
+        async function loadTabContent(tabId, container) {
+            // Заглушки для примера - потом заменим на реальные данные
+            const contentMap = {
+                'shifts': await loadShiftsTab(),
+                'production': await loadProductionTab(),
+                'monitoring': '<div class="card"><h2>Мониторинг</h2><p>Здесь будет таблица сотрудников</p></div>',
+                'blanks': '<div class="card"><h2>Склад заготовок</h2><p>Здесь будет список заготовок</p></div>',
+                'raw': '<div class="card"><h2>Склад сырья</h2><p>Здесь будет список сырья</p></div>',
+                'finance': '<div class="card"><h2>Финансы</h2><p>Здесь будут настройки оплаты</p></div>',
+                'payroll': '<div class="card"><h2>Зарплата</h2><p>Здесь будет расчёт зарплаты</p></div>'
+            };
+
+            container.innerHTML = contentMap[tabId] || '<div class="card"><h2>В разработке</h2></div>';
+        }
+
+        async function loadShiftsTab() {
+            return `
+                <div class="card">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+                        <div style="text-align: center;">
+                            <div style="font-size: 32px; font-weight: bold; color: #667eea;" id="totalShifts">0</div>
+                            <div style="color: #666;">Всего смен</div>
+                        </div>
+                        <div style="text-align: center;">
+                            <div style="font-size: 32px; font-weight: bold; color: #667eea;" id="totalHours">0.0</div>
+                            <div style="color: #666;">Часов</div>
+                        </div>
+                    </div>
+                    <button class="btn btn-green" onclick="startShift()">Начать смену</button>
+                    <button class="btn btn-red" onclick="endShift()">Завершить смену</button>
+                    <button class="btn btn-blue" onclick="showHistory()">История смен</button>
+                </div>
+            `;
+        }
+
+        async function loadProductionTab() {
+            return `
+                <div class="card">
+                    <h2 style="margin-bottom: 15px;">Сдать отчёт</h2>
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: 500;">Заготовка</label>
+                        <select id="blankSelect" style="width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 16px;">
+                            <option>Загрузка...</option>
+                        </select>
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: 500;">Взято (шт)</label>
+                        <input type="number" id="takenInput" value="1" style="width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 16px;">
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: 500;">Годных (шт)</label>
+                        <input type="number" id="producedInput" value="0" style="width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 16px;">
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 5px; font-weight: 500;">Брак (шт)</label>
+                        <input type="number" id="defectInput" value="0" style="width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 16px;">
+                    </div>
+                    <button class="btn btn-green" onclick="submitProduction()">Сдать отчёт</button>
+                </div>
+            `;
+        }
+
+        async function startShift() {
+            try {
+                const response = await fetch(`${API_URL}/shifts/open`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (response.ok) {
+                    alert('Смена начата!');
+                    showTab('shifts');
+                } else {
+                    const error = await response.json();
+                    alert(error.detail || 'Ошибка');
+                }
+            } catch (err) {
+                alert('Нет связи с сервером');
+            }
+        }
+
+        async function endShift() {
+            try {
+                const response = await fetch(`${API_URL}/shifts/close`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    alert(`Смена завершена! Отработано: ${data.duration_hours || 0} ч.`);
+                    showTab('shifts');
+                } else {
+                    const error = await response.json();
+                    alert(error.detail || 'Ошибка');
+                }
+            } catch (err) {
+                alert('Нет связи с сервером');
+            }
+        }
+
+        async function submitProduction() {
+            alert('Функция в разработке');
+        }
+
+        function showHistory() {
+            alert('История смен');
+        }
+
+        function logout() {
+            localStorage.clear();
+            window.location.href = '/';
+        }
+    </script>
+</body>
+</html>

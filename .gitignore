@@ -1,0 +1,133 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+env.bak/
+venv.bak/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.gitattributes
+.pytest_cache/
+.hypothesis/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# База данных SQLite
+*.db
+*.sqlite
+*.sqlite3
+app.db
+database.db
+
+# Переменные окружения (НИКОГДА не коммить секреты!)
+.env
+.env.local
+.env.*.local
+.env.bak
+.env.sample
+
+# Секретные ключи и конфиги
+config.json
+secrets.json
+*.pem
+*.key
+
+# Временные файлы
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+
+# Сборка и дистрибуция
+build/
+dist/
+*.egg-info/
+*.egg
+*.whl
+
+# Docker (если не нужно в репо)
+docker-compose.yml
+Dockerfile
+.docker/
+
+# Лог файлы сервера
+*.log
+access.log
+error.log
+uvicorn.log
+
+# Система учёта (специфичные файлы)
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.gitattributes
+.pytest_cache/
+.hypothesis/
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
