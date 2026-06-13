@@ -4,90 +4,18 @@ __pycache__/
 *$py.class
 *.so
 .Python
-env/
-venv/
-.venv/
-env.bak/
-venv.bak/
-pip-log.txt
-pip-delete-this-directory.txt
-.tox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.log
-.gitattributes
-.pytest_cache/
-.hypothesis/
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-.DS_Store
-Thumbs.db
-
-# База данных SQLite
-*.db
-*.sqlite
-*.sqlite3
-app.db
-database.db
-
-# Переменные окружения (НИКОГДА не коммить секреты!)
-.env
-.env.local
-.env.*.local
-.env.bak
-.env.sample
-
-# Секретные ключи и конфиги
-config.json
-secrets.json
-*.pem
-*.key
-
-# Временные файлы
-*.tmp
-*.temp
-*.bak
-*.swp
-*.swo
-
-# Сборка и дистрибуция
 build/
+develop-eggs/
 dist/
-*.egg-info/
-*.egg
-*.whl
-
-# Docker (если не нужно в репо)
-docker-compose.yml
-Dockerfile
-.docker/
-
-# Лог файлы сервера
-*.log
-access.log
-error.log
-uvicorn.log
-
-# Система учёта (специфичные файлы)
-*.pyc
-*.pyo
-*.pyd
-.Python
-*.so
-*.egg
-*.egg-info/
-dist/
-build/
+downloads/
 eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -96,6 +24,58 @@ MANIFEST
 *.spec
 pip-log.txt
 pip-delete-this-directory.txt
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# PyCharm
+.iml
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/encodings.xml
+.idea/misc.xml
+.idea/libraries/
+.idea/modules.xml
+.idea/vcs.xml
+.idea/inspectionProfiles/
+.idea/shelf/
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+app.db
+database.db
+
+# Logs
+*.log
+
+# Secrets and environment
+.env
+.env.local
+.env.*.local
+.env.bak
+.env.sample
+config.json
+secrets.json
+*.pem
+*.key
+
+# Testing
 .tox/
 .coverage
 .coverage.*
@@ -108,7 +88,17 @@ coverage.xml
 .pytest_cache/
 .hypothesis/
 
-# macOS
+# Build artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+*.whl
+MANIFEST
+*.manifest
+*.spec
+
+# OS
 .DS_Store
 .DS_Store?
 ._*
@@ -117,11 +107,6 @@ coverage.xml
 ehthumbs.db
 Thumbs.db
 Desktop.ini
-
-# Windows
-Thumbs.db
-ehthumbs.db
-Desktop.ini
 $RECYCLE.BIN/
 *.cab
 *.msi
@@ -129,5 +114,9 @@ $RECYCLE.BIN/
 *.msp
 *.lnk
 
-# Linux
-*~
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
