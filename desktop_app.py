@@ -4,6 +4,7 @@ import time
 import subprocess
 import requests
 import ctypes
+import math
 from functools import partial
 from datetime import datetime
 from PySide6.QtWidgets import (
@@ -11,9 +12,9 @@ from PySide6.QtWidgets import (
     QLabel, QLineEdit, QPushButton, QStackedWidget, QFrame,
     QMessageBox, QGridLayout, QComboBox, QDialog, QTabWidget,
     QTableWidget, QTableWidgetItem, QHeaderView, QFormLayout, QInputDialog, QCalendarWidget, QDialogButtonBox,
-    QFileDialog
+    QFileDialog, QToolButton, QMenu, QDateEdit
 )
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QDate
 from PySide6.QtGui import QFont, QColor
 
 API_URL = "http://127.0.0.1:8000"
@@ -39,31 +40,44 @@ class ShiftApp(QMainWindow):
 
         self.setWindowTitle("Учёт смен и производства")
         self.setMinimumSize(900, 650)
-        self.setStyleSheet("""
+        # Тема по умолчанию (светлая)
+        self.current_theme = "light"
+
+        # Загружаем сохранённую тему
+        self.load_theme_preference()
+
+        # Применяем тему
+        self.apply_theme()
+
+        # Пробуем запустить сервер в фоне
+        QTimer.singleShot(100, self.try_start_server)
+
+        self.init_ui()
+
+    def get_light_theme(self):
+        """Светлая тема (твоя оригинальная)"""
+        return """
             QMainWindow {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #667eea, stop:1 #764ba2);
             }
             QWidget { font-family: 'Segoe UI', Arial, sans-serif; }
             QLabel { color: #333; }
 
-            /* ПОЛЯ ВВОДА И ВЫБОРА (Цвет Лазурного Кристалла) */
             QLineEdit, QComboBox {
                 padding: 10px;
-                border: 2px solid #89CFF0; /* Граница в тон */
+                border: 2px solid #89CFF0;
                 border-radius: 8px;
                 font-size: 14px;
-                background-color: #E6F7FF; /* Лазурный Кристалл */
-                color: #004080; /* Тёмно-синий текст (чтобы было видно) */
+                background-color: #E6F7FF;
+                color: #004080;
             }
 
-            /* При наведении курсора на поле */
             QLineEdit:focus, QComboBox:focus {
                 border: 2px solid #667eea;
-                background-color: #FFFFFF; /* При вводе фон становится белым */
+                background-color: #FFFFFF;
                 color: #333333;
             }
 
-            /* ТАБЫ (ВКЛАДКИ) */
             QTabWidget::pane {
                 border: 1px solid #ccc;
                 background: white;
@@ -71,8 +85,8 @@ class ShiftApp(QMainWindow):
             }
 
             QTabBar::tab {
-                background-color: #E6F7FF; /* Лазурный Кристалл для неактивных */
-                color: #004080; /* Тёмно-синий текст */
+                background-color: #E6F7FF;
+                color: #004080;
                 padding: 10px 20px;
                 border: 1px solid #89CFF0;
                 border-bottom: none;
@@ -82,19 +96,16 @@ class ShiftApp(QMainWindow):
                 font-weight: bold;
             }
 
-            /* Активная вкладка */
             QTabBar::tab:selected {
                 background: white;
                 color: #667eea;
                 border-bottom: 2px solid #667eea;
             }
 
-            /* Наведение на неактивную вкладку */
             QTabBar::tab:hover:!selected {
                 background: #D1EEFC;
             }
 
-            /* КНОПКИ */
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #667eea, stop:1 #764ba2);
                 color: white;
@@ -108,16 +119,188 @@ class ShiftApp(QMainWindow):
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #5568d3, stop:1 #65408b);
             }
 
-            /* ПРОЧЕЕ */
             QFrame { background: white; border-radius: 15px; }
-            QTableWidget { border: 1px solid #e0e0e0; border-radius: 5px; color: #333; }
+            QTableWidget { border: 1px solid #e0e0e0; border-radius: 5px; color: #333; background: white; }
             QHeaderView::section { background: #f8f9fa; padding: 5px; border: 1px solid #e0e0e0; color: #333; }
-        """)
+        """
 
-        # Пробуем запустить сервер в фоне
-        QTimer.singleShot(100, self.try_start_server)
+    def get_dark_theme(self):
+        """Тёмная тема"""
+        return """
+            QMainWindow {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #1a1a2e, stop:1 #16213e);
+            }
+            QWidget { font-family: 'Segoe UI', Arial, sans-serif; }
+            QLabel { color: #e0e0e0; }
 
-        self.init_ui()
+            QLineEdit, QComboBox {
+                padding: 10px;
+                border: 2px solid #4a5568;
+                border-radius: 8px;
+                font-size: 14px;
+                background-color: #2d3748;
+                color: #e0e0e0;
+            }
+
+            QLineEdit:focus, QComboBox:focus {
+                border: 2px solid #667eea;
+                background-color: #1a202c;
+                color: #ffffff;
+            }
+
+            QTabWidget::pane {
+                border: 1px solid #4a5568;
+                background: #1a202c;
+                border-radius: 10px;
+            }
+
+            QTabBar::tab {
+                background-color: #2d3748;
+                color: #a0aec0;
+                padding: 10px 20px;
+                border: 1px solid #4a5568;
+                border-bottom: none;
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
+                margin-right: 2px;
+                font-weight: bold;
+            }
+
+            QTabBar::tab:selected {
+                background: #1a202c;
+                color: #667eea;
+                border-bottom: 2px solid #667eea;
+            }
+
+            QTabBar::tab:hover:!selected {
+                background: #4a5568;
+                color: #e0e0e0;
+            }
+
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #667eea, stop:1 #764ba2);
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 10px 20px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #5568d3, stop:1 #65408b);
+            }
+
+            QFrame { background: #1a202c; border-radius: 15px; }
+
+            /* Поля ввода внутри форм */
+            QFrame QLineEdit,
+            QFrame QComboBox {
+                background: #2d3748;
+                color: #e0e0e0;
+                border: 2px solid #4a5568;
+            }
+
+            QFrame QLabel {
+                color: #e0e0e0;
+            }
+
+            QTableWidget { border: 1px solid #4a5568; border-radius: 5px; color: #e0e0e0; background: #1a202c; }
+            QHeaderView::section { background: #2d3748; padding: 5px; border: 1px solid #4a5568; color: #e0e0e0; }
+        """
+
+    def apply_theme(self):
+        """Применяет текущую тему"""
+        if self.current_theme == "dark":
+            self.setStyleSheet(self.get_dark_theme())
+        else:
+            self.setStyleSheet(self.get_light_theme())
+
+    def toggle_theme(self):
+        """Переключает тему"""
+        self.current_theme = "dark" if self.current_theme == "light" else "light"
+        self.apply_theme()
+        self.save_theme_preference()
+
+        # Обновляем обе кнопки (на входе и в dashboard)
+        icon = "" if self.current_theme == "light" else "☀️"
+
+        if hasattr(self, 'theme_btn_login'):
+            self.theme_btn_login.setText(icon)
+            # Обновляем стиль
+            if self.current_theme == "light":
+                self.theme_btn_login.setStyleSheet("""
+                    QPushButton {
+                        background: #2d3748;
+                        color: white;
+                        border: 2px solid #4a5568;
+                        border-radius: 25px;
+                        font-size: 20px;
+                    }
+                    QPushButton:hover {
+                        background: #1a202c;
+                    }
+                """)
+            else:
+                self.theme_btn_login.setStyleSheet("""
+                    QPushButton {
+                        background: #f6e05e;
+                        color: #1a202c;
+                        border: 2px solid #ecc94b;
+                        border-radius: 25px;
+                        font-size: 20px;
+                    }
+                    QPushButton:hover {
+                        background: #ecc94b;
+                    }
+                """)
+
+        if hasattr(self, 'theme_btn'):
+            self.theme_btn.setText(icon)
+            # Обновляем стиль
+            if self.current_theme == "light":
+                self.theme_btn.setStyleSheet("""
+                    QPushButton {
+                        background: #2d3748;
+                        color: white;
+                        border: 2px solid #4a5568;
+                        border-radius: 25px;
+                        font-size: 20px;
+                    }
+                    QPushButton:hover {
+                        background: #1a202c;
+                    }
+                """)
+            else:
+                self.theme_btn.setStyleSheet("""
+                    QPushButton {
+                        background: #f6e05e;
+                        color: #1a202c;
+                        border: 2px solid #ecc94b;
+                        border-radius: 25px;
+                        font-size: 20px;
+                    }
+                    QPushButton:hover {
+                        background: #ecc94b;
+                    }
+                """)
+
+    def save_theme_preference(self):
+        """Сохраняет выбор темы в файл"""
+        try:
+            with open("theme.txt", "w") as f:
+                f.write(self.current_theme)
+        except:
+            pass
+
+    def load_theme_preference(self):
+        """Загружает сохранённую тему из файла"""
+        try:
+            with open("theme.txt", "r") as f:
+                theme = f.read().strip()
+                if theme in ["light", "dark"]:
+                    self.current_theme = theme
+        except:
+            self.current_theme = "light"
 
     def _get_status_text(self, status):
         """Возвращает текст статуса с эмодзи"""
@@ -132,25 +315,27 @@ class ShiftApp(QMainWindow):
         return mapping.get(status, status)
 
     def _get_status_color(self, status):
-        """Возвращает цвет фона для статуса"""
         from PySide6.QtGui import QColor
-
         colors = {
-            "working": QColor("#d4edda"),  # Зеленый
-            "late": QColor("#cce5ff"),  # Синий
-            "absent": QColor("#f8d7da"),  # Красный
-            "sick": QColor("#fff3cd"),  # Желтый
-            "vacation": QColor("#e2d9f3"),  # Фиолетовый
-            "no_shift": QColor("#f8f9fa")  # Серый
+            "working": QColor("#28a745"),  # Насыщенный зелёный — работает вовремя
+            "late": QColor("#fd7e14"),  # Оранжевый — опоздал
+            "absent": QColor("#dc3545"),  # Красный — не вышел
+            "sick": QColor("#ffc107"),  # Жёлтый — больничный
+            "vacation": QColor("#ffc107"),  # Жёлтый — отпуск
+            "no_shift": QColor("#6c757d")  # Серый — смена закрыта
         }
         return colors.get(status, QColor("white"))
 
-    def _get_status_text_color(self, status):
-        """Возвращает цвет текста для статуса"""
-        from PySide6.QtGui import QColor
-
-        # Для всех статусов делаем темный текст для читаемости
-        return QColor("#000000")
+    def _get_status_text(self, status):
+        mapping = {
+            "На работе": "На работе",
+            "Опоздал": "Опоздал",
+            "Не_вышел": "Не вышел",
+            "Больничный": "Больничный",
+            "В_отпуске": "В отпуске",
+            "Смена_закрыта": "Смена закрыта"
+        }
+        return mapping.get(status, status)
 
     def try_start_server(self):
         """Пытаемся запустить сервер в фоне"""
@@ -220,6 +405,47 @@ class ShiftApp(QMainWindow):
         layout = QVBoxLayout(page)
         layout.setSpacing(20)
         layout.addWidget(self._title_label("Учёт смен"))
+
+        # Кнопка переключения темы (в правом верхнем углу)
+        theme_container = QWidget()
+        theme_layout = QHBoxLayout(theme_container)
+        theme_layout.addStretch()
+
+        self.theme_btn_login = QPushButton("" if self.current_theme == "light" else "☀️")
+        self.theme_btn_login.setFixedSize(50, 50)
+
+        # Адаптивный стиль
+        if self.current_theme == "light":
+            self.theme_btn_login.setStyleSheet("""
+                QPushButton {
+                    background: #2d3748;
+                    color: white;
+                    border: 2px solid #4a5568;
+                    border-radius: 25px;
+                    font-size: 20px;
+                }
+                QPushButton:hover {
+                    background: #1a202c;
+                }
+            """)
+        else:
+            self.theme_btn_login.setStyleSheet("""
+                QPushButton {
+                    background: #f6e05e;
+                    color: #1a202c;
+                    border: 2px solid #ecc94b;
+                    border-radius: 25px;
+                    font-size: 20px;
+                }
+                QPushButton:hover {
+                    background: #ecc94b;
+                }
+            """)
+
+        self.theme_btn_login.clicked.connect(self.toggle_theme)
+        theme_layout.addWidget(self.theme_btn_login)
+        layout.addWidget(theme_container)
+
         layout.addWidget(QLabel("Логин"))
         self.login_input = QLineEdit()
         self.login_input.setPlaceholderText("Введите логин")
@@ -299,11 +525,49 @@ class ShiftApp(QMainWindow):
         self.welcome.setFont(QFont('Segoe UI', 18, QFont.Weight.Bold))
         top_bar.addWidget(self.welcome)
         top_bar.addStretch()
+
+        # Кнопка переключения темы
+        self.theme_btn = QPushButton("" if self.current_theme == "light" else "☀️")
+        self.theme_btn.setFixedSize(50, 50)
+
+        # Адаптивный стиль кнопки
+        if self.current_theme == "light":
+            self.theme_btn.setStyleSheet("""
+                QPushButton {
+                    background: #2d3748;
+                    color: white;
+                    border: 2px solid #4a5568;
+                    border-radius: 25px;
+                    font-size: 20px;
+                }
+                QPushButton:hover {
+                    background: #1a202c;
+                }
+            """)
+        else:
+            self.theme_btn.setStyleSheet("""
+                QPushButton {
+                    background: #f6e05e;
+                    color: #1a202c;
+                    border: 2px solid #ecc94b;
+                    border-radius: 25px;
+                    font-size: 20px;
+                }
+                QPushButton:hover {
+                    background: #ecc94b;
+                }
+            """)
+
+        self.theme_btn.clicked.connect(self.toggle_theme)
+        top_bar.addWidget(self.theme_btn)
+
+        # Кнопка выхода
         out_btn = QPushButton("Выйти")
         out_btn.setFixedWidth(100)
-        out_btn.setStyleSheet("background:#dc3545;")
+        out_btn.setStyleSheet("background:#dc3545; color: white; border-radius: 8px; font-weight: bold;")
         out_btn.clicked.connect(self.logout)
         top_bar.addWidget(out_btn)
+
         layout.addLayout(top_bar)
 
         # Табы
@@ -311,10 +575,8 @@ class ShiftApp(QMainWindow):
 
         # Вкладка 1: Смены (будет настроена при входе)
         self.shifts_tab = QWidget()
-        # НЕ вызываем setup_shifts_tab() здесь!
         self.tabs.addTab(self.shifts_tab, "Смены")
 
-        # Вкладка 2: Производство
         # Вкладка 2: Производство
         self.production_tab = QWidget()
         self.setup_production_tab()
@@ -327,11 +589,11 @@ class ShiftApp(QMainWindow):
         self.monitoring_tab = QWidget()
         self.setup_monitoring_tab()
 
-        # Вкладка 3: Склад заготовок (Только админ)
+        # Вкладка 4: Склад сырья
         self.raw_tab = QWidget()
         self.setup_raw_tab()
 
-        # Вкладка 4: Склад заготовок (Только админ)
+        # Вкладка 5: Склад заготовок (Только админ)
         self.blanks_tab = QWidget()
         self.setup_blanks_tab()
 
@@ -343,8 +605,263 @@ class ShiftApp(QMainWindow):
         self.payroll_tab = QWidget()
         self.setup_payroll_tab()
 
+        # Вкладка 6: Склад заготовок (Только админ)
+        self.blanks_tab = QWidget()
+        self.setup_blanks_tab()
+        self.tabs.addTab(self.blanks_tab, "Склад заготовок")
+
+        # Вкладка Рецептуры (Только админ и руководитель)
+        self.recipes_tab = QWidget()
+        self.setup_recipes_tab()
+        self.tabs.addTab(self.recipes_tab, "Рецептуры")
+
+        # Вкладка График отпусков
+        self.vacation_tab = QWidget()
+        self.setup_vacation_tab()
+        self.tabs.addTab(self.vacation_tab, "График отпусков")
+
         layout.addWidget(self.tabs)
         return page
+
+    def load_vacation_schedule(self):
+        """Загрузка графика отпусков всех сотрудников"""
+        print(f"🔄 Загрузка графика отпусков...")
+
+        try:
+            # Получаем статус всех сотрудников на сегодня
+            today = datetime.now().strftime("%Y-%m-%d")
+            r = requests.get(f"{API_URL}/admin/monitoring/status?target_date={today}",
+                             headers={"Authorization": f"Bearer {self.token}"})
+
+            if r.status_code == 200:
+                employees = r.json()
+                self.vacation_table.setRowCount(len(employees))
+
+                for i, emp in enumerate(employees):
+                    print(f"  [{i}] {emp['login']}: {emp['status']}")
+
+                    # Колонка 0: ID
+                    self.vacation_table.setItem(i, 0, QTableWidgetItem(str(emp['id'])))
+                    # Колонка 1: Сотрудник
+                    self.vacation_table.setItem(i, 1, QTableWidgetItem(emp['login']))
+                    # Колонка 2: Роль
+                    self.vacation_table.setItem(i, 2, QTableWidgetItem(emp.get('role', 'user')))
+
+                    # Колонка 3: Кнопка Изменить (только для админа и руководителя)
+                    if self.user_role in ["admin", "manager"]:
+                        edit_btn = QPushButton("✏️")
+                        edit_btn.setToolTip("Добавить/Изменить отсутствие")
+                        edit_btn.setFixedSize(30, 30)
+                        edit_btn.setStyleSheet("""
+                            QPushButton {
+                                background: #28a745;
+                                color: white;
+                                border: none;
+                                border-radius: 5px;
+                                font-size: 14px;
+                            }
+                            QPushButton:hover {
+                                background: #218838;
+                            }
+                        """)
+                        edit_btn.clicked.connect(
+                            lambda checked, uid=emp['id'], uname=emp['login']:
+                            self.edit_absence_dialog(uid, uname)
+                        )
+
+                        self.vacation_table.setCellWidget(i, 3, edit_btn)
+                    else:
+                        self.vacation_table.setItem(i, 3, QTableWidgetItem("-"))
+
+                # Скрываем колонку с ID
+                self.vacation_table.setColumnHidden(0, True)
+
+                print(f"✅ Загружено сотрудников: {len(employees)}")
+            elif r.status_code == 403:
+                print(f"⚠️ Нет доступа к мониторингу (403)")
+                self.vacation_table.setRowCount(0)
+            else:
+                print(f"❌ Ошибка сервера: {r.status_code}")
+                QMessageBox.warning(self, "Ошибка", f"Не удалось загрузить данные: {r.status_code}")
+
+        except Exception as e:
+            print(f"❌ Исключение при загрузке: {e}")
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(self, "Ошибка", f"Ошибка: {str(e)}")
+
+    def add_absence_dialog(self):
+        """Диалог добавления отсутствия (отпуск/больничный)"""
+        # Сначала выбираем сотрудника
+        try:
+            r = requests.get(f"{API_URL}/manager/users/list",
+                             headers={"Authorization": f"Bearer {self.token}"})
+            if r.status_code != 200:
+                QMessageBox.critical(self, "Ошибка", "Не удалось загрузить список сотрудников")
+                return
+
+            users = r.json()
+            user_names = [f"{u['login']} ({u['role']})" for u in users]
+            user_ids = [u['id'] for u in users]
+
+            user_name, ok = QInputDialog.getItem(
+                self, "Выбор сотрудника", "Выберите сотрудника:", user_names, 0, False
+            )
+
+            if not ok or not user_name:
+                return
+
+            # Получаем ID выбранного пользователя
+            selected_index = user_names.index(user_name)
+            user_id = user_ids[selected_index]
+
+            # Теперь показываем диалог с датами
+            self._show_absence_date_dialog(user_id, user_name.split()[0])
+
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Ошибка: {str(e)}")
+
+    def edit_absence_dialog(self, user_id, user_name):
+        """Диалог редактирования отсутствия для конкретного сотрудника"""
+        self._show_absence_date_dialog(user_id, user_name)
+
+    def _show_absence_date_dialog(self, user_id, user_name):
+        """Диалог выбора дат и типа отсутствия"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Отсутствие: {user_name}")
+        dialog.setMinimumWidth(400)
+
+        layout = QFormLayout(dialog)
+
+        # Тип отсутствия
+        type_combo = QComboBox()
+        type_combo.addItems(["Больничный", "Отпуск"])
+        layout.addRow("Тип:", type_combo)
+
+        # Дата начала
+        start_date = QDateEdit()
+        start_date.setDate(QDate.currentDate())
+        start_date.setCalendarPopup(True)
+        start_date.setDisplayFormat("yyyy-MM-dd")
+        layout.addRow("Дата начала:", start_date)
+
+        # Дата конца
+        end_date = QDateEdit()
+        end_date.setDate(QDate.currentDate().addDays(14))
+        end_date.setCalendarPopup(True)
+        end_date.setDisplayFormat("yyyy-MM-dd")
+        layout.addRow("Дата конца:", end_date)
+
+        # Комментарий
+        comment_input = QLineEdit()
+        comment_input.setPlaceholderText("Комментарий (необязательно)")
+        layout.addRow("Комментарий:", comment_input)
+
+        # Кнопки
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            absence_type = "sick" if type_combo.currentText() == "Больничный" else "vacation"
+            start = start_date.date().toString("yyyy-MM-dd")
+            end = end_date.date().toString("yyyy-MM-dd")
+            comment = comment_input.text().strip()
+
+            try:
+                payload = {
+                    "user_id": int(user_id),
+                    "start_date": start,
+                    "end_date": end,
+                    "absence_type": absence_type,
+                    "comment": comment
+                }
+
+                r = requests.post(f"{API_URL}/admin/monitoring/set_absence",
+                                  json=payload,
+                                  headers={"Authorization": f"Bearer {self.token}"})
+
+                if r.status_code == 200:
+                    QMessageBox.information(self, "Успех",
+                                            f"Отсутствие добавлено!\n{user_name}: {absence_type} с {start} по {end}")
+                    self.load_vacation_schedule()
+                else:
+                    QMessageBox.critical(self, "Ошибка", r.json().get("detail", "Ошибка добавления"))
+
+            except Exception as e:
+                QMessageBox.critical(self, "Ошибка", f"Ошибка: {str(e)}")
+
+    def delete_absence_dialog(self, user_id, user_name):
+        """Диалог удаления отсутствия"""
+        reply = QMessageBox.question(
+            self, "Удаление отсутствия",
+            f"Вы уверены, что хотите удалить все отсутствия для '{user_name}'?\nЭто действие необратимо!",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                # Удаляем все отсутствия пользователя
+                payload = {
+                    "user_id": int(user_id),
+                    "start_date": "2020-01-01",
+                    "end_date": "2030-12-31",
+                    "absence_type": None
+                }
+
+                r = requests.post(f"{API_URL}/admin/monitoring/set_absence",
+                                  json=payload,
+                                  headers={"Authorization": f"Bearer {self.token}"})
+
+                if r.status_code == 200:
+                    QMessageBox.information(self, "Успех", f"Все отсутствия для '{user_name}' удалены!")
+                    self.load_vacation_schedule()
+                else:
+                    QMessageBox.critical(self, "Ошибка", r.json().get("detail", "Ошибка удаления"))
+
+            except Exception as e:
+                QMessageBox.critical(self, "Ошибка", f"Ошибка: {str(e)}")
+
+    def setup_vacation_tab(self):
+        layout = QVBoxLayout(self.vacation_tab)
+        layout.setSpacing(15)
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        # Заголовок
+        layout.addWidget(QLabel("<b>График отпусков и больничных</b>"))
+
+        # Панель управления (только для админа и руководителя)
+        if self.user_role in ["admin", "manager"]:
+            controls = QHBoxLayout()
+
+            add_btn = QPushButton("➕ Добавить отсутствие")
+            add_btn.setStyleSheet("background: #28a745; color: white; border-radius: 8px; font-weight: bold;")
+            add_btn.setMinimumHeight(40)
+            add_btn.clicked.connect(self.add_absence_dialog)
+            controls.addWidget(add_btn)
+
+            controls.addStretch()
+            layout.addLayout(controls)
+
+        # Таблица сотрудников - 4 колонки (ID скрыт + Сотрудник + Роль + Действия)
+        self.vacation_table = QTableWidget()
+        self.vacation_table.setColumnCount(4)
+        self.vacation_table.setHorizontalHeaderLabels(["ID", "Сотрудник", "Роль", "Действия"])
+        self.vacation_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.vacation_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.vacation_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        layout.addWidget(self.vacation_table)
+
+        # Кнопка обновления
+        refresh_btn = QPushButton("🔄 Обновить")
+        refresh_btn.setStyleSheet("background: #6c757d; color: white; border-radius: 8px; font-weight: bold;")
+        refresh_btn.setMinimumHeight(40)
+        refresh_btn.clicked.connect(self.load_vacation_schedule)
+        layout.addWidget(refresh_btn)
 
     def reset_password_dialog(self, user_id, login):
         """Диалог смены пароля сотруднику"""
@@ -612,8 +1129,30 @@ class ShiftApp(QMainWindow):
 
         # Форма отчёта
         form_box = QFrame()
-        form_box.setStyleSheet("background: #f8f9fa; border-radius: 10px; padding: 20px;")
+        form_box.setObjectName("production_form")
+        form_box.setStyleSheet("""
+            QFrame#production_form {
+                background: #f8f9fa;
+                border-radius: 10px;
+                padding: 20px;
+            }
+            QFrame#production_form QLabel {
+                color: #004080;
+                font-weight: bold;
+            }
+            QFrame#production_form QLineEdit,
+            QFrame#production_form QComboBox {
+                background: white;
+                color: #333;
+                border: 2px solid #89CFF0;
+                border-radius: 8px;
+                padding: 10px;
+            }
+        """)
+
+        # Создаём grid layout для формы
         form_layout = QGridLayout(form_box)
+        assert isinstance(form_layout, QGridLayout)  # Помощь IDE
         form_layout.setSpacing(12)
         form_layout.setContentsMargins(10, 10, 10, 10)
         form_layout.setColumnStretch(1, 1)
@@ -651,20 +1190,20 @@ class ShiftApp(QMainWindow):
         l_reason.setStyleSheet(lbl_style)
 
         # === РАССТАВЛЯЕМ В СЕТКУ ===
-        form_layout.addWidget(l_blank, 0, 0)
-        form_layout.addWidget(self.blank_combo, 0, 1)
+        form_layout.addWidget(l_blank, 0, 0, 1, 1)
+        form_layout.addWidget(self.blank_combo, 0, 1, 1, 1)
 
-        form_layout.addWidget(l_taken, 1, 0)
-        form_layout.addWidget(self.in_taken, 1, 1)
+        form_layout.addWidget(l_taken, 1, 0, 1, 1)
+        form_layout.addWidget(self.in_taken, 1, 1, 1, 1)
 
-        form_layout.addWidget(l_prod, 2, 0)
-        form_layout.addWidget(self.in_produced, 2, 1)
+        form_layout.addWidget(l_prod, 2, 0, 1, 1)
+        form_layout.addWidget(self.in_produced, 2, 1, 1, 1)
 
-        form_layout.addWidget(l_defect, 3, 0)
-        form_layout.addWidget(self.in_defect, 3, 1)
+        form_layout.addWidget(l_defect, 3, 0, 1, 1)
+        form_layout.addWidget(self.in_defect, 3, 1, 1, 1)
 
-        form_layout.addWidget(l_reason, 4, 0)
-        form_layout.addWidget(self.in_reason, 4, 1)
+        form_layout.addWidget(l_reason, 4, 0, 1, 1)
+        form_layout.addWidget(self.in_reason, 4, 1, 1, 1)
 
         # Кнопка на всю ширину формы
         submit_btn = QPushButton("Сдать отчёт")
@@ -695,26 +1234,22 @@ class ShiftApp(QMainWindow):
         layout = QVBoxLayout(self.blanks_tab)
         layout.setSpacing(15)
 
-        # Таблица
+        # Таблица - 5 колонок (ID скрыт + Название + Остаток + Действия)
         self.blanks_table = QTableWidget()
-        self.blanks_table.setColumnCount(4)  # Увеличили до 4 для скрытого ID
-        self.blanks_table.setHorizontalHeaderLabels(["ID", "Название", "Остаток", ""])
+        self.blanks_table.setColumnCount(5)
+        self.blanks_table.setHorizontalHeaderLabels(["ID", "Название", "Остаток", "", "Действия"])
         self.blanks_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.blanks_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self.blanks_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         layout.addWidget(self.blanks_table)
 
-        # Панель управления
+        # Панель управления (убрана кнопка "Взять заготовки")
         controls = QHBoxLayout()
 
         self.blank_add_btn = QPushButton("➕ Добавить заготовки")
         self.blank_add_btn.setStyleSheet("background: #28a745; color: white; border-radius: 8px; font-weight: bold;")
         self.blank_add_btn.setMinimumHeight(40)
         self.blank_add_btn.clicked.connect(self.add_blank_dialog)
-
-        self.blank_take_btn = QPushButton("📦 Взять заготовки")
-        self.blank_take_btn.setStyleSheet("background: #007bff; color: white; border-radius: 8px; font-weight: bold;")
-        self.blank_take_btn.setMinimumHeight(40)
-        self.blank_take_btn.clicked.connect(self.take_blank_dialog)
 
         self.blank_refresh_btn = QPushButton("🔄 Обновить")
         self.blank_refresh_btn.setStyleSheet(
@@ -723,8 +1258,7 @@ class ShiftApp(QMainWindow):
         self.blank_refresh_btn.clicked.connect(self.load_blanks_list)
 
         controls.addWidget(self.blank_add_btn)
-        controls.addWidget(self.blank_take_btn)
-        controls.addStretch()
+        controls.addStretch()  # Растягиваем пространство
         controls.addWidget(self.blank_refresh_btn)
         layout.addLayout(controls)
 
@@ -745,11 +1279,12 @@ class ShiftApp(QMainWindow):
             add_raw_btn.clicked.connect(self.add_raw_material_dialog)
             layout.addWidget(add_raw_btn)
 
-        # Таблица сырья
+        # Таблица сырья - 6 колонок (ID скрыт + 4 видимых + Действия)
         self.raw_table = QTableWidget()
-        self.raw_table.setColumnCount(4)
-        self.raw_table.setHorizontalHeaderLabels(["Название", "Количество", "Ед. измерения", "Последнее обновление"])
+        self.raw_table.setColumnCount(6)
+        self.raw_table.setHorizontalHeaderLabels(["ID", "Название", "Толщина", "Цвет", "Остаток", "Действия"])
         self.raw_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.raw_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         layout.addWidget(self.raw_table)
 
         # Кнопка обновления
@@ -759,25 +1294,199 @@ class ShiftApp(QMainWindow):
         layout.addWidget(refresh_btn)
 
     def load_raw_materials(self):
+        print(f"🔄 Загрузка сырья для роли: {self.user_role}")
+        print(f" Token: {'Есть' if self.token else 'НЕТ!'}")
+
         try:
             r = requests.get(f"{API_URL}/admin/warehouse/raw", headers={"Authorization": f"Bearer {self.token}"})
+            print(f"📡 Статус ответа: {r.status_code}")
+
             if r.status_code == 200:
                 materials = r.json()
+                print(f"✅ Получено материалов: {len(materials)}")
+
                 self.raw_table.setRowCount(len(materials))
                 for i, mat in enumerate(materials):
-                    # Скрываем ID в первом столбце, потом скроем его визуально
+                    print(
+                        f"  [{i}] ID={mat['id']}, Name={mat['name']}, Thickness={mat['thickness']}, Color={mat['color']}, Qty={mat['quantity']}")
                     self.raw_table.setItem(i, 0, QTableWidgetItem(str(mat['id'])))
                     self.raw_table.setItem(i, 1, QTableWidgetItem(mat['name']))
                     self.raw_table.setItem(i, 2, QTableWidgetItem(mat['thickness']))
                     self.raw_table.setItem(i, 3, QTableWidgetItem(mat['color']))
                     self.raw_table.setItem(i, 4, QTableWidgetItem(str(mat['quantity'])))
 
+                    # Кнопка с меню действий (колонка 5)
+                    if self.user_role in ["admin", "manager"]:
+                        action_btn = QPushButton("Действия ▼")
+                        action_btn.setStyleSheet("""
+                            QPushButton {
+                                background: #6f42c1;
+                                color: white;
+                                border: none;
+                                border-radius: 5px;
+                                padding: 5px 10px;
+                                font-size: 12px;
+                                font-weight: bold;
+                            }
+                            QPushButton:hover {
+                                background: #5a32a3;
+                            }
+                        """)
+
+                        # Создаём меню
+                        menu = QMenu()
+                        menu.addAction("✏️ Изменить")
+                        menu.addAction("🗑️ Удалить")
+
+                        # Для отладки
+                        print(f"  [{i}] Создаю кнопку для материала: ID={mat['id']}, Name={mat['name']}")
+
+                        # Подключаем кнопку к показу меню
+                        def show_action_menu(checked, mid=mat['id'], mname=mat['name'],
+                                             mthickness=mat['thickness'], mcolor=mat['color'],
+                                             mqty=mat['quantity']):
+                            print(f"📍 Показываю меню для: ID={mid}, Name={mname}")
+                            action = menu.exec(action_btn.mapToGlobal(action_btn.rect().bottomLeft()))
+                            if action:
+                                if action.text() == "✏️ Изменить":
+                                    print(f"✏️ Выбрано 'Изменить'")
+                                    self.edit_raw_material(mid, mname, mthickness, mcolor, mqty)
+                                elif action.text() == "🗑️ Удалить":
+                                    print(f"🗑️ Выбрано 'Удалить'")
+                                    self.delete_raw_material(mid, mname)
+
+                        action_btn.clicked.connect(show_action_menu)
+                        action_btn.setToolTip("Нажмите для выбора действия")
+
+                        self.raw_table.setCellWidget(i, 5, action_btn)
+                        print(f"  ✅ Кнопка добавлена")
+                    else:
+                        self.raw_table.setItem(i, 5, QTableWidgetItem("-"))
+
                 # Скрываем колонку с ID
                 self.raw_table.setColumnHidden(0, True)
-                # Меняем заголовки (теперь 5 колонок)
-                self.raw_table.setHorizontalHeaderLabels(["ID", "Название", "Толщина", "Цвет", "Остаток"])
+                print("✅ Колонка ID скрыта")
+            else:
+                print(f"❌ Ошибка сервера: {r.status_code}")
+                print(f"   Ответ: {r.text}")
+                QMessageBox.warning(self, "Ошибка", f"Не удалось загрузить сырье: {r.status_code}")
+
         except Exception as e:
-            print(f"Ошибка загрузки сырья: {e}")
+            print(f"❌ Исключение при загрузке: {e}")
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(self, "Ошибка", f"Ошибка: {str(e)}")
+
+    def delete_raw_material(self, material_id, material_name):
+        """Удаление материала со склада"""
+        print(f"🗑️ Удаление материала ID={material_id}, Name={material_name}")
+        reply = QMessageBox.question(
+            self,
+            "Удаление материала",
+            f"Вы уверены, что хотите удалить '{material_name}'?\nЭто действие необратимо!",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                r = requests.delete(
+                    f"{API_URL}/admin/warehouse/raw/{material_id}",
+                    headers={"Authorization": f"Bearer {self.token}"}
+                )
+
+                if r.status_code == 200:
+                    QMessageBox.information(self, "Успех", f"Материал '{material_name}' удален!")
+                    self.load_raw_materials()  # Обновляем таблицу
+                else:
+                    error_msg = r.json().get("detail", "Ошибка удаления")
+                    print(f"❌ Ошибка удаления: {error_msg}")
+                    QMessageBox.critical(self, "Ошибка", error_msg)
+
+            except Exception as e:
+                print(f"❌ Исключение при удалении: {e}")
+                QMessageBox.critical(self, "Ошибка", f"Ошибка: {str(e)}")
+
+    def edit_raw_material(self, material_id, name, thickness, color, quantity):
+        """Редактирование материала"""
+        print(f"✏️ Редактирование: ID={material_id}, Name={name}, Thickness={thickness}, Color={color}, Qty={quantity}")
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Изменить материал")
+        dialog.setMinimumWidth(400)
+
+        layout = QFormLayout(dialog)
+
+        # Название
+        name_input = QLineEdit(name)
+        name_input.setPlaceholderText("Название")
+        layout.addRow("Название:", name_input)
+
+        # Толщина
+        thickness_input = QLineEdit(thickness)
+        thickness_input.setPlaceholderText("Толщина (например: 3 мм)")
+        layout.addRow("Толщина:", thickness_input)
+
+        # Цвет
+        color_input = QLineEdit(color)
+        color_input.setPlaceholderText("Цвет")
+        layout.addRow("Цвет:", color_input)
+
+        # Количество
+        qty_input = QLineEdit(str(quantity))
+        qty_input.setPlaceholderText("Количество")
+        layout.addRow("Количество:", qty_input)
+
+        # Кнопки
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            new_name = name_input.text().strip().lower()
+            new_thickness = thickness_input.text().strip()
+            new_color = color_input.text().strip()
+            qty_text = qty_input.text().strip()
+
+            if not new_name or not new_thickness or not new_color or not qty_text:
+                QMessageBox.warning(self, "Ошибка", "Заполните все поля!")
+                return
+
+            try:
+                new_qty = float(qty_text)
+                if new_qty < 0:
+                    raise ValueError
+
+                payload = {
+                    "name": new_name,
+                    "thickness": new_thickness,
+                    "color": new_color,
+                    "quantity": new_qty
+                }
+
+                print(f"📤 Отправка обновления: {payload}")
+                r = requests.put(
+                    f"{API_URL}/admin/warehouse/raw/{material_id}",
+                    json=payload,
+                    headers={"Authorization": f"Bearer {self.token}"}
+                )
+
+                if r.status_code == 200:
+                    QMessageBox.information(self, "Успех", f"Материал '{new_name}' обновлен!")
+                    self.load_raw_materials()
+                else:
+                    error_msg = r.json().get("detail", "Ошибка обновления")
+                    print(f"❌ Ошибка обновления: {error_msg}")
+                    QMessageBox.critical(self, "Ошибка", error_msg)
+
+            except ValueError:
+                QMessageBox.warning(self, "Ошибка", "Неверное количество!")
+            except Exception as e:
+                print(f"❌ Исключение при обновлении: {e}")
+                QMessageBox.critical(self, "Ошибка", f"Ошибка: {str(e)}")
 
     def setup_monitoring_tab(self):
         layout = QVBoxLayout(self.monitoring_tab)
@@ -812,6 +1521,7 @@ class ShiftApp(QMainWindow):
         legend.setStyleSheet("color: #555; font-size: 12px;")
         layout.addWidget(legend)
 
+
     def load_monitoring_status(self):
         target_date = self.monitor_date_edit.text()
         try:
@@ -828,6 +1538,9 @@ class ShiftApp(QMainWindow):
                     status_item = QTableWidgetItem(self._get_status_text(emp['status']))
                     status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     status_item.setBackground(self._get_status_color(emp['status']))
+
+                    status_item.setForeground(QColor("#000000"))
+
                     self.monitor_table.setItem(i, 2, status_item)
 
         except Exception as e:
@@ -846,11 +1559,12 @@ class ShiftApp(QMainWindow):
     def _get_status_color(self, status):
         from PySide6.QtGui import QColor
         colors = {
-            "working": QColor("#d4edda"),  # Зеленый
-            "late": QColor("#cce5ff"),  # Синий
-            "absent": QColor("#f8d7da"),  # Красный
-            "sick": QColor("#fff3cd"),  # Желтый
-            "vacation": QColor("#e2d9f3")  # Фиолетовый
+            "working": QColor("#28a745"),  # Насыщенный зелёный
+            "late": QColor("#007bff"),  # Насыщенный синий
+            "absent": QColor("#dc3545"),  # Насыщенный красный
+            "sick": QColor("#ffc107"),  # Насыщенный жёлтый
+            "vacation": QColor("#6f42c1"),  # Насыщенный фиолетовый
+            "no_shift": QColor("#6c757d")  # Серый
         }
         return colors.get(status, QColor("white"))
 
@@ -1013,7 +1727,7 @@ class ShiftApp(QMainWindow):
             QMessageBox.critical(self, "Ошибка", str(e))
 
     def add_raw_material_dialog(self):
-        """Диалог добавления сырья на склад (для руководителя)"""
+        """Диалог добавления сырья на склад"""
         dialog = QDialog(self)
         dialog.setWindowTitle("Добавить сырье на склад")
         dialog.setMinimumWidth(400)
@@ -1025,15 +1739,20 @@ class ShiftApp(QMainWindow):
         name_input.setPlaceholderText("Например: Полипропилен")
         layout.addRow("Название:", name_input)
 
+        # Толщина/Размер
+        thickness_input = QLineEdit()
+        thickness_input.setPlaceholderText("Например: 3 мм")
+        layout.addRow("Толщина (размер):", thickness_input)
+
+        # Цвет
+        color_input = QLineEdit()
+        color_input.setPlaceholderText("Например: прозрачный")
+        layout.addRow("Цвет:", color_input)
+
         # Количество
         qty_input = QLineEdit()
         qty_input.setPlaceholderText("0")
-        layout.addRow("Количество:", qty_input)
-
-        # Единица измерения
-        unit_input = QComboBox()
-        unit_input.addItems(["кг", "г", "л", "мл", "шт", "м", "м²"])
-        layout.addRow("Ед. измерения:", unit_input)
+        layout.addRow("Количество (шт):", qty_input)
 
         # Кнопки
         buttons = QDialogButtonBox(
@@ -1044,11 +1763,17 @@ class ShiftApp(QMainWindow):
         layout.addRow(buttons)
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            name = name_input.text().strip()
-            qty_text = qty_input.text().strip()
-            unit = unit_input.currentText()
+            name = name_input.text().strip().lower()
+            thickness = thickness_input.text().strip()
+            # Нормализуем толщину - заменяем точку на запятую и добавляем "мм" если нет
+            thickness = thickness.replace('.', ',').strip()
+            if not thickness.lower().endswith('мм'):
+                thickness = thickness + 'мм'
 
-            if not name or not qty_text:
+            color = color_input.text().strip().lower()
+            qty_text = qty_input.text().strip()
+
+            if not name or not thickness or not color or not qty_text:
                 QMessageBox.warning(self, "Ошибка", "Заполните все поля!")
                 return
 
@@ -1059,26 +1784,30 @@ class ShiftApp(QMainWindow):
 
                 payload = {
                     "name": name,
-                    "quantity": qty,
-                    "unit": unit
+                    "thickness": thickness,
+                    "color": color,
+                    "quantity": qty
                 }
 
                 r = requests.post(
-                    f"{API_URL}/warehouse/raw/add",
+                    f"{API_URL}/admin/warehouse/raw/add",
                     json=payload,
                     headers={"Authorization": f"Bearer {self.token}"}
                 )
 
-                if r.status_code == 200:
-                    QMessageBox.information(self, "Успех", f"Сырье '{name}' добавлено!\nКоличество: {qty} {unit}")
+                if r.status_code == 201:
+                    QMessageBox.information(self, "Успех", f"Сырье '{name}' добавлено!\nКоличество: {qty} шт.")
                     self.load_raw_materials()
                 else:
-                    QMessageBox.critical(self, "Ошибка", r.json().get("detail", "Ошибка добавления"))
+                    error_detail = r.json().get("detail", "Ошибка добавления")
+                    if isinstance(error_detail, list):
+                        error_detail = " | ".join(str(item) for item in error_detail)
+                    QMessageBox.critical(self, "Ошибка", str(error_detail))
 
             except ValueError:
                 QMessageBox.warning(self, "Ошибка", "Неверное количество!")
             except Exception as e:
-                QMessageBox.critical(self, "Ошибка", f"Ошибка: {str(e)}")
+                QMessageBox.critical(self, "Ошибка", str(e))
 
     def _title_label(self, text):
         lbl = QLabel(text)
@@ -1135,7 +1864,7 @@ class ShiftApp(QMainWindow):
 
                 # --- ДОБАВЛЕНИЕ СПЕЦИФИЧНЫХ ВКЛАДОК ---
                 if self.user_role == "admin":
-                    # Пересоздаем вкладку "Склад сырья"
+                    # Пересоздаем вкладку "Склад сырья" для админа
                     self.load_production_data()
                     self.raw_tab = QWidget()
                     self.setup_raw_tab()
@@ -1145,17 +1874,43 @@ class ShiftApp(QMainWindow):
                     self.load_monitoring_status()
                     self.load_raw_materials()
                     self.load_blanks_list()
+                    self.vacation_tab = QWidget()
+                    self.setup_vacation_tab()
+                    self.tabs.addTab(self.vacation_tab, "График отпусков")
+                    self.tabs.addTab(self.recipes_tab, "Рецептуры")
+
+                    self.load_recipes()
+                    self.load_monitoring_status()
+                    self.load_raw_materials()
+                    self.load_blanks_list()
+                    self.load_vacation_schedule()
+
 
                 elif self.user_role == "manager":
                     # Пересоздаем вкладку "Склад сырья" для руководителя
+
                     self.load_production_data()
                     self.raw_tab = QWidget()
                     self.setup_raw_tab()
                     self.tabs.addTab(self.raw_tab, "Склад сырья")
+
+                    # Добавляем вкладку "Склад заготовок"
+                    self.blanks_tab = QWidget()
+                    self.setup_blanks_tab()
+                    self.tabs.addTab(self.blanks_tab, "Склад заготовок")
                     self.tabs.addTab(self.finance_tab, "Финансы")
                     self.tabs.addTab(self.payroll_tab, "Зарплата")
-                    self.load_finance_data()
 
+                    # Добавляем вкладку "Рецептуры"
+                    self.recipes_tab = QWidget()
+                    self.setup_recipes_tab()
+                    self.tabs.addTab(self.recipes_tab, "Рецептуры")
+                    self.tabs.addTab(self.vacation_tab, "График отпусков")
+                    self.load_finance_data()
+                    self.load_raw_materials()
+                    self.load_blanks_list()
+                    self.load_recipes()
+                    self.load_vacation_schedule()
                 self.stack.setCurrentIndex(2)
             else:
                 QMessageBox.critical(self, "Ошибка", r.json().get("detail", "Ошибка входа"))
@@ -1440,7 +2195,8 @@ class ShiftApp(QMainWindow):
         total_output = items_produced + defect_amount
         shortage = blanks_taken - total_output
 
-        if shortage > 0 and not reason:
+        # Если есть недостача, требуем причину
+        if shortage > 0:
             reason, ok = QInputDialog.getText(
                 self, "ВНИМАНИЕ: Недостача",
                 f"Вы взяли {blanks_taken}, а сдали {total_output}.\nНедостача: {shortage} шт.\nУкажите причину:"
@@ -1449,6 +2205,10 @@ class ShiftApp(QMainWindow):
                 QMessageBox.warning(self, "Ошибка", "Необходимо указать причину недостачи!")
                 return
             reason = reason.strip()
+
+            # ВАЖНО: добавляем недостачу к браку
+            defect_amount += shortage
+            print(f"⚠️ Недостача {shortage} шт. добавлена к браку. Итого брак: {defect_amount}")
 
         # Получаем название заготовки для product_name
         selected_blank_name = self.blank_combo.currentText()
@@ -1464,7 +2224,7 @@ class ShiftApp(QMainWindow):
                 "blank_id": int(blank_id),
                 "blanks_taken": blanks_taken,
                 "items_produced": items_produced,
-                "defect_amount": defect_amount,
+                "defect_amount": defect_amount,  # Теперь включает недостачу
                 "defect_reason": reason if shortage > 0 else None,
                 "product_name": product_name
             }
@@ -1505,7 +2265,6 @@ class ShiftApp(QMainWindow):
                 print(f"✅ Заготовки списаны! Остаток: {remaining}")
             else:
                 print(f"⚠️ Не удалось списать заготовки: {take_r.status_code}")
-                # Не показываем ошибку пользователю, так как отчёт уже принят
 
             # 3. Успех!
             QMessageBox.information(self, "Успех", f"Отчёт принят!\nЗаготовки списаны со склада.")
@@ -1533,39 +2292,239 @@ class ShiftApp(QMainWindow):
                 blanks = r.json()
                 self.blanks_table.setRowCount(len(blanks))
                 for i, b in enumerate(blanks):
+                    print(f"  [{i}] Заготовка: ID={b['id']}, Name={b['name']}, Qty={b['quantity']}")
+
                     self.blanks_table.setItem(i, 0, QTableWidgetItem(str(b['id'])))
                     self.blanks_table.setItem(i, 1, QTableWidgetItem(b['name']))
                     self.blanks_table.setItem(i, 2, QTableWidgetItem(str(b['quantity'])))
-                    # Добавим иконку или просто выровняем
+
+                    # Пустая ячейка (колонка 3)
+                    self.blanks_table.setItem(i, 3, QTableWidgetItem(""))
+
+                    # Контейнер для кнопок действий (колонка 4)
+                    container = QWidget()
+                    layout = QHBoxLayout(container)
+                    layout.setContentsMargins(2, 2, 2, 2)
+                    layout.setSpacing(2)
+
+                    # Кнопка Добавить (новая)
+                    add_btn = QPushButton("➕")
+                    add_btn.setToolTip("Добавить количество")
+                    add_btn.setFixedSize(30, 30)
+                    add_btn.setStyleSheet("""
+                        QPushButton {
+                            background: #17a2b8;
+                            color: white;
+                            border: none;
+                            border-radius: 5px;
+                            font-size: 14px;
+                        }
+                        QPushButton:hover {
+                            background: #138496;
+                        }
+                    """)
+                    add_btn.clicked.connect(
+                        lambda checked, bid=b['id'], bname=b['name'], bqty=b['quantity']:
+                        self.add_quantity_dialog(bid, bname, bqty)
+                    )
+
+                    # Кнопка Изменить
+                    edit_btn = QPushButton("✏️")
+                    edit_btn.setToolTip("Изменить заготовку")
+                    edit_btn.setFixedSize(30, 30)
+                    edit_btn.setStyleSheet("""
+                        QPushButton {
+                            background: #28a745;
+                            color: white;
+                            border: none;
+                            border-radius: 5px;
+                            font-size: 14px;
+                        }
+                        QPushButton:hover {
+                            background: #218838;
+                        }
+                    """)
+                    edit_btn.clicked.connect(
+                        lambda checked, bid=b['id'], bname=b['name'], bqty=b['quantity']:
+                        self.edit_blank_from_table(bid, bname, bqty)
+                    )
+
+                    # Кнопка Удалить
+                    delete_btn = QPushButton("🗑️")
+                    delete_btn.setToolTip("Удалить заготовку")
+                    delete_btn.setFixedSize(30, 30)
+                    delete_btn.setStyleSheet("""
+                        QPushButton {
+                            background: #dc3545;
+                            color: white;
+                            border: none;
+                            border-radius: 5px;
+                            font-size: 14px;
+                        }
+                        QPushButton:hover {
+                            background: #c82333;
+                        }
+                    """)
+                    delete_btn.clicked.connect(
+                        lambda checked, bid=b['id'], bname=b['name']:
+                        self.delete_blank(bid, bname)
+                    )
+
+                    layout.addWidget(add_btn)
+                    layout.addWidget(edit_btn)
+                    layout.addWidget(delete_btn)
+
+                    self.blanks_table.setCellWidget(i, 4, container)
+
+                    # Выравнивание по центру
                     self.blanks_table.item(i, 2).setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
                 # Скрываем колонку с ID
                 self.blanks_table.setColumnHidden(0, True)
-                # Обновляем заголовки (теперь 4 колонки: ID скрыт + Название + Остаток)
-                self.blanks_table.setHorizontalHeaderLabels(["ID", "Название", "Остаток", ""])
+                # Скрываем пустую колонку
+                self.blanks_table.setColumnHidden(3, True)
+                # Обновляем заголовки
+                self.blanks_table.setHorizontalHeaderLabels(["ID", "Название", "Остаток", "", "Действия"])
+
+                print(f"✅ Загружено заготовок: {len(blanks)}")
+            else:
+                print(f"❌ Ошибка загрузки заготовок: {r.status_code}")
         except Exception as e:
             print(f"Ошибка загрузки заготовок: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def add_quantity_dialog(self, blank_id, blank_name, current_qty):
+        """Диалог быстрого добавления количества"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Добавить: {blank_name}")
+        dialog.setMinimumWidth(400)
+
+        layout = QFormLayout(dialog)
+
+        # Текущее количество
+        current_label = QLabel(f"{current_qty} шт.")
+        current_label.setStyleSheet("font-weight: bold; color: #ffc107; font-size: 14px;")
+        layout.addRow("Текущее количество:", current_label)
+
+        # Сколько добавить
+        add_input = QLineEdit()
+        add_input.setPlaceholderText("Сколько добавить?")
+        layout.addRow("Добавить (шт):", add_input)
+
+        # Итоговое количество (информация)
+        self.temp_total_label = QLabel(f"Будет: {current_qty} шт.")
+        self.temp_total_label.setStyleSheet("color: #28a745; font-weight: bold;")
+        layout.addRow("После добавления:", self.temp_total_label)
+
+        # Кнопки
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
+
+        # Обновляем итог при изменении текста
+        def update_total(text):
+            try:
+                add_qty = int(text) if text else 0
+                total = current_qty + add_qty
+                self.temp_total_label.setText(f"Будет: {total} шт.")
+            except:
+                self.temp_total_label.setText(f"Будет: {current_qty} шт.")
+
+        add_input.textChanged.connect(update_total)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            add_text = add_input.text().strip()
+
+            if not add_text:
+                QMessageBox.warning(self, "Ошибка", "Введите количество!")
+                return
+
+            try:
+                add_qty = int(add_text)
+                if add_qty <= 0:
+                    raise ValueError
+
+                payload = {
+                    "name": blank_name,
+                    "quantity": add_qty
+                }
+
+                r = requests.post(f"{API_URL}/admin/warehouse/blanks/add",
+                                  json=payload,
+                                  headers={"Authorization": f"Bearer {self.token}"})
+
+                if r.status_code == 201:
+                    new_total = current_qty + add_qty
+                    QMessageBox.information(
+                        self, "Успех",
+                        f"Добавлено {add_qty} шт.!\n"
+                        f"Всего: {new_total} шт."
+                    )
+                    self.load_blanks_list()
+                else:
+                    QMessageBox.critical(self, "Ошибка", r.json().get("detail", "Ошибка"))
+
+            except ValueError:
+                QMessageBox.warning(self, "Ошибка", "Введите положительное число!")
+            except Exception as e:
+                QMessageBox.critical(self, "Ошибка", str(e))
 
     def add_blank_dialog(self):
-        name, ok1 = QInputDialog.getText(self, "Добавить заготовки", "Название (например, Бокс №10):")
-        if not ok1 or not name.strip():
-            return
-        qty, ok2 = QInputDialog.getInt(self, "Добавить заготовки", "Количество (шт):", 100, min=1)
-        if not ok2 or qty <= 0:
-            return
+        """Диалог добавления заготовок"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Добавить заготовки")
+        dialog.setMinimumWidth(400)
 
-        try:
-            payload = {"name": name.strip(), "quantity": qty}
-            r = requests.post(f"{API_URL}/admin/warehouse/blanks/add", json=payload,
-                              headers={"Authorization": f"Bearer {self.token}"})
-            if r.status_code == 201:
-                QMessageBox.information(self, "Успех", "Заготовки добавлены на склад!")
-                self.load_blanks_list()
-                self.load_production_data()  # Обновить выпадающий список в производстве
-            else:
-                QMessageBox.critical(self, "Ошибка", r.json().get("detail", "Ошибка"))
-        except Exception as e:
-            QMessageBox.critical(self, "Ошибка", str(e))
+        layout = QFormLayout(dialog)
+
+        # Название
+        name_input = QLineEdit()
+        name_input.setPlaceholderText("Например: Бокс №10")
+        layout.addRow("Название:", name_input)
+
+        # Количество
+        qty_input = QLineEdit()
+        qty_input.setPlaceholderText("0")
+        layout.addRow("Количество (шт):", qty_input)
+
+        # Кнопки
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            name = name_input.text().strip()
+            qty_text = qty_input.text().strip()
+
+            if not name or not qty_text:
+                QMessageBox.warning(self, "Ошибка", "Заполните все поля!")
+                return
+
+            try:
+                qty = int(qty_text)
+                if qty <= 0:
+                    raise ValueError
+
+                payload = {"name": name, "quantity": qty}
+                r = requests.post(f"{API_URL}/admin/warehouse/blanks/add", json=payload,
+                                  headers={"Authorization": f"Bearer {self.token}"})
+                if r.status_code == 201:
+                    QMessageBox.information(self, "Успех", f"Заготовки '{name}' добавлены!\nКоличество: {qty} шт.")
+                    self.load_blanks_list()
+                    self.load_production_data()  # Обновить выпадающий список в производстве
+                else:
+                    QMessageBox.critical(self, "Ошибка", r.json().get("detail", "Ошибка"))
+            except ValueError:
+                QMessageBox.warning(self, "Ошибка", "Неверное количество!")
+            except Exception as e:
+                QMessageBox.critical(self, "Ошибка", str(e))
 
     def take_blank_dialog(self):
         if self.blanks_table.currentRow() < 0:
@@ -1602,6 +2561,131 @@ class ShiftApp(QMainWindow):
                 QMessageBox.critical(self, "Ошибка", r.json().get("detail", "Ошибка"))
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", str(e))
+
+    def take_blank_from_table(self, blank_id, blank_name, current_qty):
+        """Взять заготовки из таблицы (быстрый доступ)"""
+        amount, ok = QInputDialog.getInt(
+            self,
+            f"Взять: {blank_name}",
+            f"Доступно: {current_qty} шт.\nСколько взять?",
+            1,  # значение по умолчанию
+            1,  # minValue
+            current_qty,  # maxValue
+            1  # step
+        )
+        if not ok or amount <= 0:
+            return
+
+        try:
+            payload = {"blank_id": int(blank_id), "amount": amount}
+            r = requests.post(f"{API_URL}/warehouse/blanks/take", json=payload,
+                              headers={"Authorization": f"Bearer {self.token}"})
+            if r.status_code == 200:
+                QMessageBox.information(self, "Успех", f"Заготовки взяты! Остаток: {r.json()['remaining']}")
+                self.load_blanks_list()
+            else:
+                QMessageBox.critical(self, "Ошибка", r.json().get("detail", "Ошибка"))
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", str(e))
+
+    def edit_blank_from_table(self, blank_id, blank_name, current_qty):
+        """Редактирование заготовки (название и/или количество)"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Изменить: {blank_name}")
+        dialog.setMinimumWidth(400)
+
+        layout = QFormLayout(dialog)
+
+        # Название
+        name_input = QLineEdit(blank_name)
+        name_input.setPlaceholderText("Название заготовки")
+        layout.addRow("Название:", name_input)
+
+        # Количество
+        qty_input = QLineEdit(str(current_qty))
+        qty_input.setPlaceholderText("Количество")
+        layout.addRow("Количество:", qty_input)
+
+        # Кнопки
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            new_name = name_input.text().strip()
+            qty_text = qty_input.text().strip()
+
+            if not new_name or not qty_text:
+                QMessageBox.warning(self, "Ошибка", "Заполните все поля!")
+                return
+
+            try:
+                new_qty = int(qty_text)
+                if new_qty < 0:
+                    raise ValueError
+
+                payload = {
+                    "name": new_name,
+                    "quantity": new_qty
+                }
+
+                r = requests.put(
+                    f"{API_URL}/admin/warehouse/blanks/{blank_id}",
+                    json=payload,
+                    headers={"Authorization": f"Bearer {self.token}"}
+                )
+
+                if r.status_code == 200:
+                    QMessageBox.information(self, "Успех", f"Заготовка '{new_name}' обновлена!")
+                    self.load_blanks_list()
+                else:
+                    QMessageBox.critical(self, "Ошибка", r.json().get("detail", "Ошибка обновления"))
+
+            except ValueError:
+                QMessageBox.warning(self, "Ошибка", "Неверное количество!")
+            except Exception as e:
+                QMessageBox.critical(self, "Ошибка", f"Ошибка: {str(e)}")
+
+    def delete_blank(self, blank_id, blank_name):
+        """Удаление заготовки со склада"""
+        reply = QMessageBox.question(
+            self,
+            "Удаление заготовки",
+            f"Вы уверены, что хотите удалить '{blank_name}'?\nЭто действие необратимо!",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                r = requests.delete(
+                    f"{API_URL}/admin/warehouse/blanks/{blank_id}",
+                    headers={"Authorization": f"Bearer {self.token}"}
+                )
+
+                if r.status_code == 200:
+                    # Проверяем что ответ не пустой
+                    if r.text.strip():
+                        result = r.json()
+                        QMessageBox.information(self, "Успех", f"Заготовка '{blank_name}' удалена!")
+                    else:
+                        QMessageBox.information(self, "Успех", f"Заготовка '{blank_name}' удалена!")
+
+                    self.load_blanks_list()
+                else:
+                    # Пробуем получить текст ошибки
+                    try:
+                        error_detail = r.json().get("detail", "Ошибка удаления")
+                    except:
+                        error_detail = r.text or f"Ошибка сервера: {r.status_code}"
+
+                    QMessageBox.critical(self, "Ошибка", str(error_detail))
+
+            except Exception as e:
+                QMessageBox.critical(self, "Ошибка", str(e))
 
     def logout(self):
         self.token = self.user_role = self.username = None
@@ -1870,17 +2954,27 @@ class ShiftApp(QMainWindow):
         self.payroll_table.setRowCount(len(employees))
         for i, emp in enumerate(employees):
             # Имя
-            self.payroll_table.setItem(i, 0, QTableWidgetItem(emp["login"]))
+            name_item = QTableWidgetItem(emp["login"])
+            name_item.setForeground(QColor("#e0e0e0"))  # Светлый текст для тёмной темы
+            self.payroll_table.setItem(i, 0, name_item)
+
             # Система оплаты
-            self.payroll_table.setItem(i, 1, QTableWidgetItem(f"{emp['payment_method']} ({emp['rate']} руб)"))
+            system_item = QTableWidgetItem(f"{emp['payment_method']} ({emp['rate']} руб)")
+            system_item.setForeground(QColor("#e0e0e0"))  # Светлый текст
+            self.payroll_table.setItem(i, 1, system_item)
 
             # Дни
             for j, date in enumerate(all_dates, start=2):
                 amount = emp["daily"].get(date, 0)
                 item = QTableWidgetItem(f"{amount:.2f}" if amount > 0 else "-")
                 item.setTextAlignment(Qt.AlignmentFlag.AlignRight)
+
                 if amount > 0:
-                    item.setBackground(QColor("#d4edda"))  # Зеленый для дней с доходом
+                    item.setBackground(QColor("#28a745"))  # Зелёный фон
+                    item.setForeground(QColor("#ffffff"))  # Белый текст (контрастный)
+                else:
+                    item.setForeground(QColor("#6c757d"))  # Серый текст для "-"
+
                 self.payroll_table.setItem(i, j, item)
 
             # Итого
@@ -1955,6 +3049,523 @@ class ShiftApp(QMainWindow):
             QMessageBox.information(self, "Успех", f"Отчет сохранен!\n{file_path}")
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить:\n{str(e)}")
+
+    def setup_recipes_tab(self):
+        """Создание вкладки рецептур"""
+        layout = QVBoxLayout(self.recipes_tab)
+        layout.setSpacing(15)
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        # Заголовок
+        layout.addWidget(QLabel("<b>Технологические карты (рецептуры)</b>"))
+        layout.addWidget(QLabel("Здесь настраивается сколько изделий помещается в одном листе материала"))
+
+        # Панель управления
+        controls = QHBoxLayout()
+
+        add_btn = QPushButton("➕ Добавить рецептуру")
+        add_btn.setStyleSheet("""
+            QPushButton {
+                background: #28a745;
+                color: white;
+                border-radius: 8px;
+                font-weight: bold;
+                padding: 10px;
+            }
+            QPushButton:hover {
+                background: #218838;
+            }
+        """)
+        add_btn.setMinimumHeight(40)
+        add_btn.clicked.connect(self.add_recipe_dialog)
+        controls.addWidget(add_btn)
+
+        controls.addStretch()
+        layout.addLayout(controls)
+
+        # Таблица - 6 колонок (ID скрыт + 4 данных + Действия)
+        self.recipes_table = QTableWidget()
+        self.recipes_table.setColumnCount(5)
+        self.recipes_table.setHorizontalHeaderLabels([
+            "ID", "Изделие", "Толщина материала", "Изделий в листе", "Действия", ""
+        ])
+        self.recipes_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.recipes_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self.recipes_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        layout.addWidget(self.recipes_table)
+
+        # Кнопка обновления
+        refresh_btn = QPushButton("🔄 Обновить")
+        refresh_btn.setStyleSheet("background: #6c757d; color: white; border-radius: 8px; font-weight: bold;")
+        refresh_btn.setMinimumHeight(40)
+        refresh_btn.clicked.connect(self.load_recipes)
+        layout.addWidget(refresh_btn)
+
+    def load_recipes(self):
+        """Загрузка списка рецептур"""
+        print(f"🔄 Загрузка рецептур...")
+
+        try:
+            r = requests.get(f"{API_URL}/recipes/list")
+            print(f"📡 Статус ответа: {r.status_code}")
+
+            if r.status_code == 200:
+                recipes = r.json()
+                print(f"✅ Получено рецептур: {len(recipes)}")
+
+                self.recipes_table.setRowCount(len(recipes))
+
+                for i, recipe in enumerate(recipes):
+                    print(f"  [{i}] {recipe['product_name']}: {recipe['material_thickness']}, "
+                          f"{recipe['blanks_per_sheet']} шт/лист")
+
+                    self.recipes_table.setItem(i, 0, QTableWidgetItem(str(recipe['id'])))
+                    self.recipes_table.setItem(i, 1, QTableWidgetItem(recipe['product_name']))
+                    self.recipes_table.setItem(i, 2, QTableWidgetItem(recipe['material_thickness']))
+                    self.recipes_table.setItem(i, 3, QTableWidgetItem(str(recipe['blanks_per_sheet'])))
+
+                    # === СОЗДАЁМ КОНТЕЙНЕР С КНОПКАМИ ===
+                    container = QWidget()
+                    btn_layout = QHBoxLayout(container)
+                    btn_layout.setContentsMargins(2, 2, 2, 2)
+                    btn_layout.setSpacing(5)
+
+                    # Кнопка Изменить
+                    edit_btn = QPushButton("✏️")
+                    edit_btn.setToolTip("Изменить рецептуру")
+                    edit_btn.setMinimumWidth(40)
+                    edit_btn.setStyleSheet("""
+                        QPushButton {
+                            background: #28a745;
+                            color: white;
+                            border: none;
+                            border-radius: 5px;
+                            font-size: 14px;
+                            padding: 5px;
+                        }
+                        QPushButton:hover {
+                            background: #218838;
+                        }
+                    """)
+                    edit_btn.clicked.connect(
+                        lambda checked, rid=recipe['id'], rname=recipe['product_name'],
+                               rthickness=recipe['material_thickness'],
+                               rblanks=recipe['blanks_per_sheet']:
+                        self.edit_recipe_dialog(rid, rname, rthickness, rblanks)
+                    )
+
+                    # Кнопка Удалить
+                    delete_btn = QPushButton("🗑️")
+                    delete_btn.setToolTip("Удалить рецептуру")
+                    delete_btn.setMinimumWidth(40)
+                    delete_btn.setStyleSheet("""
+                        QPushButton {
+                            background: #dc3545;
+                            color: white;
+                            border: none;
+                            border-radius: 5px;
+                            font-size: 14px;
+                            padding: 5px;
+                        }
+                        QPushButton:hover {
+                            background: #c82333;
+                        }
+                    """)
+                    delete_btn.clicked.connect(
+                        lambda checked, rid=recipe['id'], rname=recipe['product_name']:
+                        self.delete_recipe(rid, rname)
+                    )
+
+                    btn_layout.addWidget(edit_btn)
+                    btn_layout.addWidget(delete_btn)
+
+                    self.recipes_table.setCellWidget(i, 4, container)
+                    print(f"  ✅ Кнопки добавлены в строку {i}")
+
+                # Скрываем ID
+                self.recipes_table.setColumnHidden(0, True)
+
+                print(f"✅ Загружено рецептур: {len(recipes)}")
+            else:
+                print(f"❌ Ошибка загрузки: {r.status_code}")
+                QMessageBox.warning(self, "Ошибка", f"Не удалось загрузить: {r.status_code}")
+        except Exception as e:
+            print(f"❌ Исключение: {e}")
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(self, "Ошибка", str(e))
+
+    def edit_recipe_dialog(self, recipe_id, product_name, material_thickness, blanks_per_sheet):
+        """Диалог редактирования рецептуры"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Изменить: {product_name}")
+        dialog.setMinimumWidth(450)
+
+        layout = QFormLayout(dialog)
+
+        # Название изделия
+        name_input = QLineEdit(product_name)
+        name_input.setPlaceholderText("Например: Бокс №10")
+        layout.addRow("Название изделия:", name_input)
+
+        # Толщина материала
+        thickness_combo = QComboBox()
+        thickness_combo.addItems(["2мм", "1.5мм", "3мм"])
+        thickness_combo.setEditable(True)
+        thickness_combo.setCurrentText(material_thickness)
+        layout.addRow("Толщина материала:", thickness_combo)
+
+        # Заготовок в одном листе
+        blanks_input = QLineEdit(str(blanks_per_sheet))
+        blanks_input.setPlaceholderText("Сколько заготовок помещается в 1 листе")
+        layout.addRow("Заготовок в 1 листе:", blanks_input)
+
+        # Пояснение
+        info_label = QLabel("💡 Пример: в 1 листе 3мм помещается 6 заготовок")
+        info_label.setStyleSheet("color: #ffc107; font-style: italic;")
+        layout.addRow(info_label)
+
+        # Кнопки
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            product_name_new = name_input.text().strip()
+            thickness = thickness_combo.currentText()
+            blanks_text = blanks_input.text().strip()
+
+            if not all([product_name_new, thickness, blanks_text]):
+                QMessageBox.warning(self, "Ошибка", "Заполните все поля!")
+                return
+
+            try:
+                blanks_per_sheet_new = int(blanks_text)
+                if blanks_per_sheet_new <= 0:
+                    raise ValueError
+
+                payload = {
+                    "product_name": product_name_new.lower(),
+                    "material_thickness": thickness,
+                    "blanks_per_sheet": blanks_per_sheet_new
+                }
+
+                r = requests.put(
+                    f"{API_URL}/admin/recipes/{recipe_id}",
+                    json=payload,
+                    headers={"Authorization": f"Bearer {self.token}"}
+                )
+
+                if r.status_code == 200:
+                    QMessageBox.information(
+                        self, "Успех",
+                        f"Рецептура обновлена!\n\n"
+                        f"Изделие: {product_name_new}\n"
+                        f"Толщина: {thickness}\n"
+                        f"Заготовок в листе: {blanks_per_sheet_new}"
+                    )
+                    self.load_recipes()
+                else:
+                    error_detail = r.json().get("detail", "Ошибка")
+                    QMessageBox.critical(self, "Ошибка", str(error_detail))
+
+            except ValueError:
+                QMessageBox.warning(self, "Ошибка", "Количество должно быть числом!")
+            except Exception as e:
+                QMessageBox.critical(self, "Ошибка", str(e))
+
+    def delete_recipe(self, recipe_id, product_name):
+        """Удаление рецептуры"""
+        reply = QMessageBox.question(
+            self,
+            "Удаление рецептуры",
+            f"Вы уверены, что хотите удалить рецептуру для '{product_name}'?\nЭто действие необратимо!",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                r = requests.delete(
+                    f"{API_URL}/admin/recipes/{recipe_id}",
+                    headers={"Authorization": f"Bearer {self.token}"}
+                )
+
+                if r.status_code == 200:
+                    QMessageBox.information(self, "Успех", f"Рецептура '{product_name}' удалена!")
+                    self.load_recipes()
+                else:
+                    error_detail = r.json().get("detail", "Ошибка удаления")
+                    QMessageBox.critical(self, "Ошибка", str(error_detail))
+
+            except Exception as e:
+                QMessageBox.critical(self, "Ошибка", str(e))
+
+    def add_recipe_dialog(self):
+        """Диалог добавления рецептуры"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Добавить технологическую карту")
+        dialog.setMinimumWidth(450)
+
+        layout = QFormLayout(dialog)
+
+        # Название изделия
+        name_input = QLineEdit()
+        name_input.setPlaceholderText("Например: Бокс №10")
+        layout.addRow("Название изделия:", name_input)
+
+        # Толщина материала
+        thickness_combo = QComboBox()
+        thickness_combo.addItems(["2мм", "1.5мм", "3мм"])
+        thickness_combo.setEditable(True)
+        layout.addRow("Толщина материала:", thickness_combo)
+
+        # Количество изделий в одном листе
+        blanks_input = QLineEdit()
+        blanks_input.setPlaceholderText("Сколько изделий помещается в 1 листе")
+        layout.addRow("Изделий в 1 листе:", blanks_input)
+
+        # Пояснение
+        info_label = QLabel("💡 Пример: в 1 листе 3мм помещается 6 изделий")
+        info_label.setStyleSheet("color: #ffc107; font-style: italic;")
+        layout.addRow(info_label)
+
+        # Кнопки
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            product_name = name_input.text().strip()
+            thickness = thickness_combo.currentText()
+            blanks_text = blanks_input.text().strip()
+
+            if not all([product_name, thickness, blanks_text]):
+                QMessageBox.warning(self, "Ошибка", "Заполните все поля!")
+                return
+
+            try:
+                blanks_per_sheet = int(blanks_text)
+                if blanks_per_sheet <= 0:
+                    raise ValueError
+
+                payload = {
+                    "product_name": product_name.lower(),
+                    "material_thickness": thickness,
+                    "blanks_per_sheet": blanks_per_sheet
+                }
+
+                r = requests.post(
+                    f"{API_URL}/admin/recipes/add",
+                    json=payload,
+                    headers={"Authorization": f"Bearer {self.token}"}
+                )
+
+                if r.status_code == 201:
+                    QMessageBox.information(
+                        self, "Успех",
+                        f"Рецептура добавлена!\n\n"
+                        f"Изделие: {product_name}\n"
+                        f"Толщина: {thickness}\n"
+                        f"Изделий в листе: {blanks_per_sheet}\n\n"
+                        f"Пример: при добавлении 10 изделий будет списано "
+                        f"{math.ceil(10 / blanks_per_sheet)} листов"
+                    )
+                    self.load_recipes()
+                else:
+                    error_detail = r.json().get("detail", "Ошибка")
+                    QMessageBox.critical(self, "Ошибка", str(error_detail))
+
+            except ValueError:
+                QMessageBox.warning(self, "Ошибка", "Количество должно быть числом!")
+            except Exception as e:
+                QMessageBox.critical(self, "Ошибка", str(e))
+
+    def load_recipes(self):
+        """Загрузка списка рецептур"""
+        print(f"🔄 Загрузка рецептур...")
+
+        try:
+            r = requests.get(f"{API_URL}/recipes/list")
+            print(f"📡 Статус ответа: {r.status_code}")
+
+            if r.status_code == 200:
+                recipes = r.json()
+                print(f"✅ Получено рецептур: {len(recipes)}")
+
+                self.recipes_table.setRowCount(len(recipes))
+
+                for i, recipe in enumerate(recipes):
+                    print(f"  [{i}] {recipe['product_name']}: {recipe['material_thickness']}, "
+                          f"{recipe['blanks_per_sheet']} шт/лист")
+
+                    self.recipes_table.setItem(i, 0, QTableWidgetItem(str(recipe['id'])))
+                    self.recipes_table.setItem(i, 1, QTableWidgetItem(recipe['product_name']))
+                    self.recipes_table.setItem(i, 2, QTableWidgetItem(recipe['material_thickness']))
+                    self.recipes_table.setItem(i, 3, QTableWidgetItem(str(recipe['blanks_per_sheet'])))
+
+                    # === СОЗДАЁМ КОНТЕЙНЕР С КНОПКАМИ ===
+                    container = QWidget()
+                    btn_layout = QHBoxLayout(container)
+                    btn_layout.setContentsMargins(2, 2, 2, 2)
+                    btn_layout.setSpacing(5)
+
+                    # Кнопка Изменить
+                    edit_btn = QPushButton("✏️")
+                    edit_btn.setToolTip("Изменить рецептуру")
+                    edit_btn.setMinimumWidth(40)
+                    edit_btn.setStyleSheet("""
+                        QPushButton {
+                            background: #28a745;
+                            color: white;
+                            border: none;
+                            border-radius: 5px;
+                            font-size: 14px;
+                            padding: 5px;
+                        }
+                        QPushButton:hover {
+                            background: #218838;
+                        }
+                    """)
+                    edit_btn.clicked.connect(
+                        lambda checked, rid=recipe['id'], rname=recipe['product_name'],
+                               rthickness=recipe['material_thickness'],
+                               rblanks=recipe['blanks_per_sheet']:
+                        self.edit_recipe_dialog(rid, rname, rthickness, rblanks)
+                    )
+
+                    # Кнопка Удалить
+                    delete_btn = QPushButton("🗑️")
+                    delete_btn.setToolTip("Удалить рецептуру")
+                    delete_btn.setMinimumWidth(40)
+                    delete_btn.setStyleSheet("""
+                        QPushButton {
+                            background: #dc3545;
+                            color: white;
+                            border: none;
+                            border-radius: 5px;
+                            font-size: 14px;
+                            padding: 5px;
+                        }
+                        QPushButton:hover {
+                            background: #c82333;
+                        }
+                    """)
+                    delete_btn.clicked.connect(
+                        lambda checked, rid=recipe['id'], rname=recipe['product_name']:
+                        self.delete_recipe(rid, rname)
+                    )
+
+                    btn_layout.addWidget(edit_btn)
+                    btn_layout.addWidget(delete_btn)
+
+                    # Добавляем контейнер в ячейку
+                    self.recipes_table.setCellWidget(i, 4, container)
+                    print(f"  ✅ Кнопки добавлены в строку {i}")
+
+                # Скрываем ID
+                self.recipes_table.setColumnHidden(0, True)
+
+                # Устанавливаем ширину колонки действий
+                self.recipes_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+                self.recipes_table.setColumnWidth(4, 120)
+
+                print(f"✅ Загружено рецептур: {len(recipes)}")
+            else:
+                print(f"❌ Ошибка загрузки: {r.status_code}")
+                QMessageBox.warning(self, "Ошибка", f"Не удалось загрузить: {r.status_code}")
+        except Exception as e:
+            print(f" Исключение: {e}")
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(self, "Ошибка", str(e))
+
+    def add_recipe_dialog(self):
+        """Диалог добавления рецептуры"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Добавить технологическую карту")
+        dialog.setMinimumWidth(450)
+
+        layout = QFormLayout(dialog)
+
+        # Название изделия
+        name_input = QLineEdit()
+        name_input.setPlaceholderText("Например: Бокс №10")
+        layout.addRow("Название изделия:", name_input)
+
+        # Толщина материала
+        thickness_combo = QComboBox()
+        thickness_combo.addItems(["2мм", "1.5мм", "3мм"])
+        thickness_combo.setEditable(True)
+        layout.addRow("Толщина материала:", thickness_combo)
+
+        # Заготовок в одном листе
+        blanks_input = QLineEdit()
+        blanks_input.setPlaceholderText("Сколько заготовок помещается в 1 листе")
+        layout.addRow("Заготовок в 1 листе:", blanks_input)
+
+        # Пояснение
+        info_label = QLabel("💡 Пример: в 1 листе 3мм помещается 6 заготовок")
+        info_label.setStyleSheet("color: #ffc107; font-style: italic;")
+        layout.addRow(info_label)
+
+        # Кнопки
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            product_name = name_input.text().strip()
+            thickness = thickness_combo.currentText()
+            blanks_text = blanks_input.text().strip()
+
+            if not all([product_name, thickness, blanks_text]):
+                QMessageBox.warning(self, "Ошибка", "Заполните все поля!")
+                return
+
+            try:
+                blanks_per_sheet = int(blanks_text)
+                if blanks_per_sheet <= 0:
+                    raise ValueError
+
+                payload = {
+                    "product_name": product_name.lower(),
+                    "material_thickness": thickness,
+                    "blanks_per_sheet": blanks_per_sheet
+                }
+
+                r = requests.post(
+                    f"{API_URL}/admin/recipes/add",
+                    json=payload,
+                    headers={"Authorization": f"Bearer {self.token}"}
+                )
+
+                if r.status_code == 201:
+                    QMessageBox.information(
+                        self, "Успех",
+                        f"Рецептура добавлена!\n\n"
+                        f"Изделие: {product_name}\n"
+                        f"Толщина: {thickness}\n"
+                        f"Заготовок в листе: {blanks_per_sheet}"
+                    )
+                    self.load_recipes()
+                else:
+                    error_detail = r.json().get("detail", "Ошибка")
+                    QMessageBox.critical(self, "Ошибка", str(error_detail))
+
+            except ValueError:
+                QMessageBox.warning(self, "Ошибка", "Количество должно быть числом!")
+            except Exception as e:
+                QMessageBox.critical(self, "Ошибка", str(e))
 
 
 if __name__ == "__main__":

@@ -87,6 +87,23 @@ class RawMaterialCreate(BaseModel):
     color: str
     quantity: float
 
+
+class ProductionRecipeCreate(BaseModel):
+    product_name: str
+    material_thickness: str
+    blanks_per_sheet: int
+
+
+class ProductionRecipeResponse(BaseModel):
+    id: int
+    product_name: str
+    material_thickness: str
+    blanks_per_sheet: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
 class RawMaterialResponse(BaseModel):
     id: int
     name: str
@@ -118,6 +135,7 @@ class TakeProductRequest(BaseModel):
 class BlankCreate(BaseModel):
     name: str
     quantity: int
+    parties_count: int = 1
 
 class BlankResponse(BaseModel):
     id: int

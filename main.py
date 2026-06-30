@@ -13,7 +13,7 @@ import pandas as pd
 
 from database import Base, engine, get_db
 # Модели
-from models import User, Shift, Absence, Blank, ProductionLog, FinishedProduct, RawMaterial
+from models import User, Shift, Absence, Blank, ProductionLog, FinishedProduct, RawMaterial, ProductionRecipe
 
 # Схемы
 from schemas import (
@@ -24,7 +24,7 @@ from schemas import (
     RawMaterialCreate, RawMaterialResponse, TakeMaterialRequest,
     FinishedProductCreate, FinishedProductResponse, TakeProductRequest,
     BlankCreate, BlankResponse, TakeBlankRequest,
-    ProductionReportCreate, ProductionLogResponse, PaymentUpdate
+    ProductionReportCreate, ProductionLogResponse, PaymentUpdate, ProductionRecipeCreate, ProductionRecipeResponse
 )
 from auth import (
     get_password_hash, verify_password,
@@ -205,6 +205,76 @@ async def get_shift_history(
 
     return response_list
 
+
+# === УПРАВЛЕНИЕ РЕЦЕПТУРАМИ ===
+
+@app.post("/admin/recipes/add", response_model=ProductionRecipeResponse, status_code=201)
+async def add_recipe(
+    data: ProductionRecipeCreate,
+    current_user: Annotated[User, Depends(require_role(RoleEnum.admin, RoleEnum.manager))],
+    db: AsyncSession = Depends(get_db)
+):
+    """Добавить рецептуру изделия"""
+    new_recipe = ProductionRecipe(
+        product_name=data.product_name.lower(),
+        material_thickness=data.material_thickness,
+        blanks_per_sheet=data.blanks_per_sheet  # <-- ПРАВИЛЬНО!
+    )
+    db.add(new_recipe)
+    await db.commit()
+    await db.refresh(new_recipe)
+    return new_recipe
+
+
+@app.get("/recipes/list", response_model=List[ProductionRecipeResponse])
+async def get_recipes(
+        db: AsyncSession = Depends(get_db)
+):
+    """Получить все рецептуры"""
+    result = await db.execute(select(ProductionRecipe).order_by(ProductionRecipe.product_name))
+    return result.scalars().all()
+
+
+@app.put("/admin/recipes/{recipe_id}", response_model=ProductionRecipeResponse)
+async def update_recipe(
+        recipe_id: int,
+        data: ProductionRecipeCreate,
+        current_user: Annotated[User, Depends(require_role(RoleEnum.admin, RoleEnum.manager))],
+        db: AsyncSession = Depends(get_db)
+):
+    """Обновить рецептуру"""
+    stmt = select(ProductionRecipe).where(ProductionRecipe.id == recipe_id)
+    recipe = (await db.execute(stmt)).scalar_one_or_none()
+
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Рецептура не найдена")
+
+    recipe.product_name = data.product_name.lower()
+    recipe.material_thickness = data.material_thickness
+    recipe.blanks_per_sheet = data.blanks_per_sheet
+
+    await db.commit()
+    await db.refresh(recipe)
+    return recipe
+
+
+@app.delete("/admin/recipes/{recipe_id}", status_code=200)
+async def delete_recipe(
+        recipe_id: int,
+        current_user: Annotated[User, Depends(require_role(RoleEnum.admin, RoleEnum.manager))],
+        db: AsyncSession = Depends(get_db)
+):
+    """Удалить рецептуру"""
+    stmt = select(ProductionRecipe).where(ProductionRecipe.id == recipe_id)
+    recipe = (await db.execute(stmt)).scalar_one_or_none()
+
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Рецептура не найдена")
+
+    await db.delete(recipe)
+    await db.commit()
+
+    return {"message": "Рецептура удалена"}
 
 # ==========================================
 #  КАЛЕНДАРЬ ОТПУСКА И ОТСУТСТВИЯ (АДМИН)
@@ -440,7 +510,7 @@ async def admin_get_all_shifts(
 @app.post("/admin/warehouse/raw/add", response_model=RawMaterialResponse, status_code=201)
 async def add_raw_material(
         data: RawMaterialCreate,
-        current_user: Annotated[User, Depends(require_role(RoleEnum.admin))],
+        current_user: Annotated[User, Depends(require_role(RoleEnum.admin, RoleEnum.manager))],
         db: AsyncSession = Depends(get_db)
 ):
     # Проверяем, есть ли уже такой материал с такими же характеристиками
@@ -499,9 +569,39 @@ async def add_raw_material(
     return {"message": "Сырье добавлено", "quantity": raw.quantity}
 
 
+@app.put("/admin/warehouse/blanks/{blank_id}", status_code=200)
+async def update_blank(
+        blank_id: int,
+        data: dict,
+        ccurrent_user: Annotated[User, Depends(require_role(RoleEnum.admin, RoleEnum.manager))],
+        db: AsyncSession = Depends(get_db)
+):
+    """Обновить заготовку (только админ)"""
+    stmt = select(Blank).where(Blank.id == blank_id)
+    blank = (await db.execute(stmt)).scalar_one_or_none()
+
+    if not blank:
+        raise HTTPException(status_code=404, detail="Заготовка не найдена")
+
+    # Обновляем поля
+    if "name" in data:
+        blank.name = data["name"]
+    if "quantity" in data:
+        blank.quantity = int(data["quantity"])
+
+    await db.commit()
+    await db.refresh(blank)
+
+    return {
+        "message": "Заготовка обновлена",
+        "id": blank.id,
+        "name": blank.name,
+        "quantity": blank.quantity
+    }
+
 @app.get("/admin/warehouse/raw", response_model=List[RawMaterialResponse])
 async def get_raw_materials(
-    current_user: Annotated[User, Depends(require_role(RoleEnum.admin))],
+    current_user: Annotated[User, Depends(require_role(RoleEnum.admin, RoleEnum.manager))],
     db: AsyncSession = Depends(get_db)
 ):
     """Просмотр списка сырья (только админ)"""
@@ -528,6 +628,61 @@ async def take_raw_material(
     await db.commit()
     return {"message": "Material taken successfully", "remaining": mat.quantity}
 
+
+@app.put("/admin/warehouse/raw/{material_id}", status_code=200)
+async def update_raw_material(
+        material_id: int,
+        data: dict,
+        current_user: Annotated[User, Depends(require_role(RoleEnum.admin, RoleEnum.manager))],
+        db: AsyncSession = Depends(get_db)
+):
+    """Обновить материал (только админ и руководитель)"""
+    stmt = select(RawMaterial).where(RawMaterial.id == material_id)
+    mat = (await db.execute(stmt)).scalar_one_or_none()
+
+    if not mat:
+        raise HTTPException(status_code=404, detail="Материал не найден")
+
+    # Обновляем поля
+    if "name" in data:
+        mat.name = data["name"].lower()
+    if "thickness" in data:
+        mat.thickness = data["thickness"]
+    if "color" in data:
+        mat.color = data["color"]
+    if "quantity" in data:
+        mat.quantity = float(data["quantity"])
+
+    mat.last_updated = datetime.now()
+
+    await db.commit()
+    await db.refresh(mat)
+
+    return {
+        "message": "Материал обновлен",
+        "id": mat.id,
+        "name": mat.name,
+        "quantity": mat.quantity
+    }
+
+@app.delete("/admin/warehouse/raw/{material_id}", status_code=200)
+async def delete_raw_material(
+        material_id: int,
+        current_user: Annotated[User, Depends(require_role(RoleEnum.admin, RoleEnum.manager))],
+        db: AsyncSession = Depends(get_db)
+):
+    """Удалить материал со склада (только админ и руководитель)"""
+    stmt = select(RawMaterial).where(RawMaterial.id == material_id)
+    mat = (await db.execute(stmt)).scalar_one_or_none()
+
+    if not mat:
+        raise HTTPException(status_code=404, detail="Материал не найден")
+
+    await db.delete(mat)
+    await db.commit()
+
+    return {"message": "Материал удален", "name": mat.name}
+
 # ==========================================
 # 2. СКЛАД ЗАГОТОВОК (Blanks)
 # ==========================================
@@ -536,25 +691,117 @@ async def take_raw_material(
 @app.post("/admin/warehouse/blanks/add", response_model=BlankResponse, status_code=201)
 async def add_blanks(
         data: BlankCreate,
-        current_user: Annotated[User, Depends(require_role(RoleEnum.admin))],
+        current_user: Annotated[User, Depends(require_role(RoleEnum.admin, RoleEnum.manager))],
         db: AsyncSession = Depends(get_db)
 ):
-    # Если такая заготовка уже есть, плюсуем количество
+    """Добавить заготовки со автоматическим списанием сырья"""
+
+    # 1. Находим рецептуру для этого изделия
+    recipe_stmt = select(ProductionRecipe).where(
+        ProductionRecipe.product_name == data.name.lower()
+    )
+    recipe = (await db.execute(recipe_stmt)).scalar_one_or_none()
+
+    if not recipe:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Для изделия '{data.name}' не найдена рецептура! Сначала добавьте рецептуру."
+        )
+
+    # 2. Нормализуем толщину (заменяем точку на запятую для поиска)
+    recipe_thickness = recipe.material_thickness.replace('.', ',').replace(' ', '').lower()
+
+    # 3. Находим сырьё с нужной толщиной
+    all_materials_stmt = select(RawMaterial)
+    all_materials = (await db.execute(all_materials_stmt)).scalars().all()
+
+    material = None
+    for mat in all_materials:
+        mat_thickness = mat.thickness.replace('.', ',').replace(' ', '').lower()
+        if mat_thickness == recipe_thickness:
+            material = mat
+            break
+
+    if not material:
+        available_thickness = [m.thickness for m in all_materials]
+        raise HTTPException(
+            status_code=400,
+            detail=f"На складе нет сырья с толщиной {recipe.material_thickness}!\n"
+                   f"Доступные толщины: {', '.join(available_thickness)}"
+        )
+
+    # 4. Считаем сколько листов нужно
+    # Получаем количество заготовок для добавления
+    blanks_to_add = data.quantity if hasattr(data, 'quantity') else 1
+
+    # Считаем сколько листов нужно: ceil(blanks / blanks_per_sheet)
+    import math
+    sheets_needed = math.ceil(blanks_to_add / recipe.blanks_per_sheet)
+
+    if material.quantity < sheets_needed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Недостаточно сырья! Нужно {sheets_needed} листов, а есть {material.quantity}"
+        )
+
+    # 5. Списываем сырьё
+    material.quantity -= sheets_needed
+    material.last_updated = datetime.now()
+
+    # 6. Добавляем заготовки
     stmt = select(Blank).where(Blank.name == data.name)
     existing = (await db.execute(stmt)).scalar_one_or_none()
 
     if existing:
-        existing.quantity += data.quantity
+        existing.quantity += blanks_to_add
         await db.commit()
         await db.refresh(existing)
-        return existing
+    else:
+        new_blank = Blank(name=data.name, quantity=blanks_to_add)
+        db.add(new_blank)
+        await db.commit()
+        await db.refresh(new_blank)
 
-    new_blank = Blank(name=data.name, quantity=data.quantity)
-    db.add(new_blank)
+    return {
+        "id": existing.id if existing else new_blank.id,
+        "name": data.name,
+        "quantity": existing.quantity if existing else new_blank.quantity,
+        "material_consumed": sheets_needed,
+        "blanks_added": blanks_to_add,
+        "blanks_per_sheet": recipe.blanks_per_sheet
+    }
+
+
+@app.delete("/admin/warehouse/blanks/{blank_id}", status_code=200)
+async def delete_blank(
+        blank_id: int,
+        current_user: Annotated[User, Depends(require_role(RoleEnum.admin, RoleEnum.manager))],
+        db: AsyncSession = Depends(get_db)
+):
+    """Удалить заготовку (только админ и руководитель)"""
+    print(f"🗑️ Попытка удаления заготовки ID={blank_id}")
+
+    # 1. Сначала удаляем все связанные записи в production_logs
+    from sqlalchemy import delete as delete_stmt
+    delete_logs_stmt = delete_stmt(ProductionLog).where(ProductionLog.blank_id == blank_id)
+    await db.execute(delete_logs_stmt)
+    print(f"🗑️ Удалены связанные записи из production_logs")
+
+    # 2. Теперь удаляем саму заготовку
+    stmt = select(Blank).where(Blank.id == blank_id)
+    blank = (await db.execute(stmt)).scalar_one_or_none()
+
+    print(f"📦 Найдена заготовка: {blank}")
+
+    if not blank:
+        print(f"❌ Заготовка не найдена")
+        raise HTTPException(status_code=404, detail="Заготовка не найдена")
+
+    await db.delete(blank)
     await db.commit()
-    await db.refresh(new_blank)
-    return new_blank
 
+    print(f"✅ Заготовка удалена")
+    return {"message": "Заготовка удалена", "name": blank.name}
 
 # Взять заготовки (может любой авторизованный пользователь)
 @app.post("/warehouse/blanks/take")
@@ -871,29 +1118,28 @@ async def get_all_reports(
 
 @app.get("/admin/monitoring/status")
 async def get_monitoring_status(
-        current_user: Annotated[User, Depends(require_role(RoleEnum.admin))],
+        current_user: Annotated[User, Depends(require_role(RoleEnum.admin, RoleEnum.manager))],
         db: AsyncSession = Depends(get_db),
         target_date: date = Query(default_factory=lambda: datetime.now().date())
 ):
     """Получить статус всех сотрудников на дату"""
-    # Получаем всех пользователей
     users_stmt = select(User)
     users = (await db.execute(users_stmt)).scalars().all()
 
     result = []
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
 
     for user in users:
         user_data = {
             "id": user.id,
             "login": user.login,
             "role": user.role,
-            "status": "no_shift",
+            "status": "absent",
             "start_time": None,
             "duration": None
         }
 
-        # Проверяем absence (отпуск/больничный)
+        # 1. Проверяем absence (отпуск/больничный)
         absence_stmt = select(Absence).where(
             Absence.user_id == user.id,
             Absence.start_date <= target_date,
@@ -902,9 +1148,9 @@ async def get_monitoring_status(
         absence = (await db.execute(absence_stmt)).scalar_one_or_none()
 
         if absence:
-            user_data["status"] = absence.absence_type  # sick, vacation
+            user_data["status"] = absence.absence_type  # sick или vacation
         else:
-            # Проверяем активную смену
+            # 2. Проверяем смену за эту дату
             shift_stmt = select(Shift).where(
                 Shift.user_id == user.id,
                 func.date(Shift.start_time) == target_date
@@ -915,22 +1161,26 @@ async def get_monitoring_status(
                 user_data["start_time"] = shift.start_time.strftime("%H:%M")
 
                 if shift.end_time:
-                    # Смена завершена
+                    # Смена ЗАКРЫТА — сотрудник уже не работает
                     duration = (shift.end_time - shift.start_time).total_seconds() / 3600
                     user_data["duration"] = f"{duration:.1f} ч"
-                    user_data["status"] = "working"
+                    user_data["status"] = "no_shift"  # ✅ ИСПРАВЛЕНО: был "working"
                 else:
-                    # Смена активна - считаем длительность
+                    # Смена ОТКРЫТА — сотрудник работает
                     duration = (now - shift.start_time).total_seconds() / 3600
                     user_data["duration"] = f"{duration:.1f} ч"
 
-                    # Проверяем опоздание (если начал после 9:00)
-                    if shift.start_time.hour >= 9 and shift.start_time.minute > 15:
-                        user_data["status"] = "late"
+                    # Проверяем опоздание
+                    shift_date = shift.start_time.date()
+                    ideal_start = datetime.combine(shift_date, dt_time(9, 0), tzinfo=timezone.utc)
+                    grace_end = ideal_start + timedelta(minutes=15)
+
+                    if shift.start_time > grace_end:
+                        user_data["status"] = "late"  # Опоздал (оранжевый)
                     else:
-                        user_data["status"] = "working"
+                        user_data["status"] = "working"  # Работает вовремя (зелёный)
             else:
-                # Нет смены - проверяем не опоздал ли
+                # Нет смены, нет absence — не вышел
                 user_data["status"] = "absent"
 
         result.append(user_data)
@@ -940,7 +1190,7 @@ async def get_monitoring_status(
 @app.post("/admin/monitoring/set_absence", status_code=200)
 async def set_employee_absence(
         data: dict,
-        current_user: Annotated[User, Depends(require_role(RoleEnum.admin))],
+        current_user: Annotated[User, Depends(require_role(RoleEnum.admin, RoleEnum.manager))],
         db: AsyncSession = Depends(get_db)
 ):
     user_id = data.get("user_id")

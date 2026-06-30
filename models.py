@@ -29,6 +29,16 @@ class Shift(Base):
     user = relationship("User", back_populates="shifts")
 
 
+class ProductionRecipe(Base):
+    __tablename__ = "production_recipe"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_name = Column(String, nullable=False)
+    material_thickness = Column(String, nullable=False)
+    blanks_per_sheet = Column(Integer, nullable=False)  # <-- ИЗМЕНИЛИ: было sheets_count
+    created_at = Column(DateTime, default=datetime.now)
+
+
 class Absence(Base):
     __tablename__ = "absences"
     id = Column(Integer, primary_key=True, index=True)
